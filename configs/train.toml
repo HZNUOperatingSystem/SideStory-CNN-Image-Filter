@@ -1,0 +1,7 @@
+low_dir = "data/low"
+high_dir = "data/high"
+epochs = 10
+batch_size = 8
+lr = 0.001
+save_dir = "checkpoints"
+num_workers = 2

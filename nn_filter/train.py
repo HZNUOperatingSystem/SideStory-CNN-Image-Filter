@@ -1,4 +1,4 @@
-import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -10,10 +10,21 @@ from .dataset import ImageRestorationDataset
 from .model import CNNFilter
 
 
+@dataclass(slots=True)
+class TrainConfig:
+    low_dir: Path
+    high_dir: Path
+    epochs: int = 10
+    batch_size: int = 8
+    lr: float = 1e-3
+    save_dir: Path = Path('checkpoints')
+    num_workers: int = 2
+
+
 def get_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device('cuda')
-    elif torch.backends.mps.is_available():
+    if torch.backends.mps.is_available():
         return torch.device('mps')
     return torch.device('cpu')
 
@@ -55,38 +66,32 @@ def validate(
     return total_loss / len(loader)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--low_dir', required=True)
-    parser.add_argument('--high_dir', required=True)
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--batch_size', type=int, default=8)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--save_dir', default='checkpoints')
-    args = parser.parse_args()
+def train_model(
+    config: TrainConfig, *, device: torch.device | None = None
+) -> None:
+    training_device = device if device is not None else get_device()
+    print(f'Using device: {training_device}')
 
-    device = get_device()
-    print(f'Using device: {device}')
-
-    train_dataset = ImageRestorationDataset(args.low_dir, args.high_dir)
+    train_dataset = ImageRestorationDataset(
+        str(config.low_dir), str(config.high_dir)
+    )
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=config.num_workers,
     )
 
-    model = CNNFilter().to(device)
+    model = CNNFilter().to(training_device)
     criterion = nn.L1Loss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
-    save_dir = Path(args.save_dir)
+    save_dir = config.save_dir
     save_dir.mkdir(exist_ok=True)
 
-    for epoch in range(args.epochs):
+    for epoch in range(config.epochs):
         train_loss = train_epoch(
-            model, train_loader, optimizer, criterion, device
+            model, train_loader, optimizer, criterion, training_device
         )
-        print(f'Epoch {epoch + 1}/{args.epochs}, Loss: {train_loss:.4f}')
+        print(f'Epoch {epoch + 1}/{config.epochs}, Loss: {train_loss:.4f}')
         torch.save(model.state_dict(), save_dir / f'epoch_{epoch + 1}.pt')
-
-
-if __name__ == '__main__':
-    main()
