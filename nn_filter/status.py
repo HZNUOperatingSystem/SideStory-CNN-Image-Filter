@@ -7,7 +7,13 @@ import torch
 from rich.text import Text
 
 from .config import ColorMode, StatusSelection
-from .metrics import batch_vmaf, gray_psnr, rgb_psnr, y_psnr
+from .metrics import (
+    batch_vmaf,
+    ensure_vmaf_runtime_available,
+    gray_psnr,
+    rgb_psnr,
+    y_psnr,
+)
 
 MetricFunction = Callable[[torch.Tensor, torch.Tensor], float]
 
@@ -197,3 +203,15 @@ def format_status_value(status_name: str, value: float) -> Text:
             return rendered
     rendered.stylize('white')
     return rendered
+
+
+def ensure_status_runtime_available(
+    selection: StatusSelection,
+    *,
+    color_mode: ColorMode,
+) -> None:
+    selected_statuses = resolve_status_selection(
+        selection, color_mode=color_mode
+    )
+    if 'vmaf' in required_metrics(selected_statuses):
+        ensure_vmaf_runtime_available()

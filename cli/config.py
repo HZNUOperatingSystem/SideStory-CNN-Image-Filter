@@ -47,11 +47,7 @@ def load_config(
 
     if config_path is not None:
         file_values = load_toml_config(config_path)
-        config_values.update(
-            coerce_config_mapping(
-                config_type, file_values, base_dir=config_path.parent
-            )
-        )
+        config_values.update(coerce_config_mapping(config_type, file_values))
 
     if overrides is not None:
         config_values.update(coerce_config_mapping(config_type, overrides))

@@ -189,3 +189,29 @@ def batch_vmaf(prediction: torch.Tensor, target: torch.Tensor) -> float:
         for index in range(prediction.shape[0])
     ]
     return sum(scores) / len(scores)
+
+
+def ensure_vmaf_runtime_available() -> None:
+    cmd = [
+        'ffmpeg',
+        '-hide_banner',
+        '-filters',
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        msg = f'Failed to inspect FFmpeg filters: {error.stderr}'
+        raise RuntimeError(msg) from error
+    except FileNotFoundError as error:
+        msg = 'FFmpeg not found. Please install FFmpeg with libvmaf support.'
+        raise RuntimeError(msg) from error
+
+    filters_output = f'{result.stdout}\n{result.stderr}'
+    if 'libvmaf' not in filters_output:
+        msg = 'FFmpeg is available, but the libvmaf filter is missing.'
+        raise RuntimeError(msg)

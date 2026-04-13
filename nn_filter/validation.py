@@ -4,10 +4,10 @@ import torch
 from rich.text import Text
 from torch import nn
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from .config import ColorMode, StatusSelection
 from .status import StatusTracker
+from .ui import progress
 
 
 @dataclass(slots=True)
@@ -36,7 +36,7 @@ class Validator:
         model.eval()
         total_loss = 0.0
         with torch.no_grad():
-            for low_batch, high_batch in tqdm(loader, desc='val'):
+            for low_batch, high_batch in progress(loader, desc='val'):
                 low = low_batch.to(device)
                 high = high_batch.to(device)
                 prediction = model(low)

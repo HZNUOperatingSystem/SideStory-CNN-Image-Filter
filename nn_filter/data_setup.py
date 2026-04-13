@@ -1,5 +1,6 @@
 import csv
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
@@ -8,15 +9,31 @@ from .config import ColorMode
 from .dataset import ImagePair, ImageRestorationDataset
 
 
+@dataclass(frozen=True, slots=True)
+class DatasetSummary:
+    image_size: tuple[int, int] | None
+    resolution_count: int
+
+    @property
+    def has_mixed_resolution(self) -> bool:
+        return self.image_size is None
+
+    @property
+    def image_size_label(self) -> str:
+        if self.image_size is not None:
+            return str(self.image_size)
+        return f'mixed({self.resolution_count})'
+
+
 def create_dataset(
     manifest_path: Path,
     *,
     color_mode: ColorMode = 'rgb',
     patch_size: int | None = None,
     random_crop: bool = False,
-) -> tuple[ImageRestorationDataset, tuple[int, int]]:
+) -> tuple[ImageRestorationDataset, DatasetSummary]:
     samples = load_image_pairs(manifest_path)
-    image_size = validate_image_pairs(
+    summary = validate_image_pairs(
         samples, manifest_path=manifest_path, patch_size=patch_size
     )
     dataset = ImageRestorationDataset(
@@ -25,7 +42,7 @@ def create_dataset(
         patch_size=patch_size,
         random_crop=random_crop,
     )
-    return dataset, image_size
+    return dataset, summary
 
 
 def load_image_pairs(manifest_path: Path) -> list[ImagePair]:
@@ -99,12 +116,12 @@ def validate_image_pairs(
     *,
     manifest_path: Path,
     patch_size: int | None = None,
-) -> tuple[int, int]:
+) -> DatasetSummary:
     if patch_size is not None and patch_size <= 0:
         msg = f'patch_size must be positive, got {patch_size}'
         raise ValueError(msg)
 
-    reference_size: tuple[int, int] | None = None
+    image_sizes: set[tuple[int, int]] = set()
     for sample in samples:
         if not sample.source_path.is_file():
             msg = f'Source image not found: {sample.source_path}'
@@ -126,29 +143,28 @@ def validate_image_pairs(
             )
             raise ValueError(msg)
 
-        if reference_size is None:
-            reference_size = source_size
-            continue
+        image_sizes.add(source_size)
 
-        if source_size != reference_size:
-            msg = (
-                'Inconsistent input image size in '
-                f'{manifest_path}: expected {reference_size}, '
-                f'got {source_size} for {sample.source_path}'
-            )
-            raise ValueError(msg)
+        if patch_size is not None:
+            width, height = source_size
+            if patch_size > width or patch_size > height:
+                msg = (
+                    f'patch_size {patch_size} exceeds image size '
+                    f'{source_size} for {sample.source_path}'
+                )
+                raise ValueError(msg)
 
-    if reference_size is None:
+    if not image_sizes:
         msg = f'No image size could be determined from {manifest_path}'
         raise ValueError(msg)
 
-    if patch_size is not None:
-        width, height = reference_size
-        if patch_size > width or patch_size > height:
-            msg = (
-                f'patch_size {patch_size} exceeds image size '
-                f'{reference_size} in {manifest_path}'
-            )
-            raise ValueError(msg)
+    if len(image_sizes) == 1:
+        return DatasetSummary(
+            image_size=next(iter(image_sizes)),
+            resolution_count=1,
+        )
 
-    return reference_size
+    return DatasetSummary(
+        image_size=None,
+        resolution_count=len(image_sizes),
+    )
