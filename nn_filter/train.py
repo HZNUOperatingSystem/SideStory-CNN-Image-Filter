@@ -59,13 +59,31 @@ def train_model(
     training_device = device if device is not None else get_device()
     print(f'Using device: {training_device}')
 
-    train_dataset = ImageRestorationDataset(
-        str(config.low_dir), str(config.high_dir)
+    train_dataset = ImageRestorationDataset(config.train_manifest)
+    val_dataset = ImageRestorationDataset(config.val_manifest)
+    if train_dataset.image_size != val_dataset.image_size:
+        msg = (
+            'Train and validation image sizes must match: '
+            f'{train_dataset.image_size} vs {val_dataset.image_size}'
+        )
+        raise ValueError(msg)
+
+    print(
+        'Loaded datasets: '
+        f'train={len(train_dataset)}, val={len(val_dataset)}, '
+        f'image_size={train_dataset.image_size}'
     )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
         shuffle=True,
+        num_workers=config.num_workers,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
         num_workers=config.num_workers,
     )
 
@@ -80,5 +98,9 @@ def train_model(
         train_loss = train_epoch(
             model, train_loader, optimizer, criterion, training_device
         )
-        print(f'Epoch {epoch + 1}/{config.epochs}, Loss: {train_loss:.4f}')
+        val_loss = validate(model, val_loader, criterion, training_device)
+        print(
+            f'Epoch {epoch + 1}/{config.epochs}, '
+            f'train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f}'
+        )
         torch.save(model.state_dict(), save_dir / f'epoch_{epoch + 1}.pt')
