@@ -46,6 +46,7 @@ class Validator:
                 self.status_tracker.update(
                     prediction.detach().cpu(),
                     high.detach().cpu(),
+                    anchor=low.detach().cpu(),
                     batch_size=low.shape[0],
                 )
         status_summary = self.status_tracker.finish_epoch()

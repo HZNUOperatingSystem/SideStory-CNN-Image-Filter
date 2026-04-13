@@ -50,11 +50,16 @@ class StatusTracker:
     def __init__(self, status_config: ResolvedStatusConfig) -> None:
         self.status_config = status_config
         self.required_metrics = list(status_config.selected_metrics)
+        self.anchor_required_metrics = anchor_required_metrics(
+            status_config.selected_statuses
+        )
         self.metric_sums = {
             metric_name: 0.0 for metric_name in self.required_metrics
         }
+        self.anchor_metric_sums = {
+            metric_name: 0.0 for metric_name in self.anchor_required_metrics
+        }
         self.sample_count = 0
-        self.anchor_metrics: dict[str, float] = {}
         self.best_metrics: dict[str, float] = {}
 
     def update(
@@ -62,6 +67,7 @@ class StatusTracker:
         prediction: torch.Tensor,
         target: torch.Tensor,
         *,
+        anchor: torch.Tensor | None = None,
         batch_size: int,
     ) -> None:
         if not self.status_config.selected_metrics:
@@ -71,6 +77,16 @@ class StatusTracker:
             metric_fn = BASE_METRIC_FUNCTIONS[metric_name]
             metric_value = metric_fn(prediction, target)
             self.metric_sums[metric_name] += metric_value * batch_size
+        if self.anchor_required_metrics:
+            if anchor is None:
+                msg = 'anchor tensor is required for selected status values'
+                raise ValueError(msg)
+            for metric_name in self.anchor_required_metrics:
+                metric_fn = BASE_METRIC_FUNCTIONS[metric_name]
+                metric_value = metric_fn(anchor, target)
+                self.anchor_metric_sums[metric_name] += (
+                    metric_value * batch_size
+                )
         self.sample_count += batch_size
 
     def finish_epoch(self) -> StatusSummary:
@@ -85,8 +101,11 @@ class StatusTracker:
             metric_name: total / self.sample_count
             for metric_name, total in self.metric_sums.items()
         }
+        anchor_metrics = {
+            metric_name: total / self.sample_count
+            for metric_name, total in self.anchor_metric_sums.items()
+        }
         for metric_name, metric_value in current_metrics.items():
-            self.anchor_metrics.setdefault(metric_name, metric_value)
             self.best_metrics[metric_name] = max(
                 self.best_metrics.get(metric_name, metric_value),
                 metric_value,
@@ -96,7 +115,7 @@ class StatusTracker:
             status_name: resolve_status_value(
                 status_name,
                 current_metrics=current_metrics,
-                anchor_metrics=self.anchor_metrics,
+                anchor_metrics=anchor_metrics,
             )
             for status_name in self.status_config.selected_statuses
         }
@@ -110,6 +129,9 @@ class StatusTracker:
     def _reset_epoch(self) -> None:
         self.metric_sums = {
             metric_name: 0.0 for metric_name in self.required_metrics
+        }
+        self.anchor_metric_sums = {
+            metric_name: 0.0 for metric_name in self.anchor_required_metrics
         }
         self.sample_count = 0
 
@@ -170,6 +192,17 @@ def expand_status_names(base_metrics: list[str]) -> list[str]:
 def required_metrics(selected_statuses: list[str]) -> list[str]:
     metrics: list[str] = []
     for status_name in selected_statuses:
+        metric_name = base_metric_name(status_name)
+        if metric_name not in metrics:
+            metrics.append(metric_name)
+    return metrics
+
+
+def anchor_required_metrics(selected_statuses: list[str]) -> list[str]:
+    metrics: list[str] = []
+    for status_name in selected_statuses:
+        if base_metric_name(status_name) == status_name:
+            continue
         metric_name = base_metric_name(status_name)
         if metric_name not in metrics:
             metrics.append(metric_name)
