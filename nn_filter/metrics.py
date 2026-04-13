@@ -5,12 +5,17 @@ import tempfile
 from pathlib import Path
 
 import torch
+from torch.nn import functional as F
 
 from .io_utils import save_image_tensor
 
 BATCH_NDIM = 4
 GRAY_CHANNELS = 1
 RGB_CHANNELS = 3
+DEFAULT_SSIM_KERNEL_SIZE = 11
+DEFAULT_SSIM_SIGMA = 1.5
+SSIM_K1 = 0.01
+SSIM_K2 = 0.03
 
 
 def _ensure_4d(tensor: torch.Tensor) -> torch.Tensor:
@@ -30,6 +35,101 @@ def _psnr_from_tensors(
         return float('inf')
     ratio = torch.tensor((max_value * max_value) / mse)
     return 10.0 * torch.log10(ratio).item()
+
+
+def _ssim_from_tensors(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    max_value: float = 1.0,
+) -> float:
+    if prediction.shape != target.shape:
+        msg = (
+            f'Shape mismatch: prediction {tuple(prediction.shape)} vs '
+            f'target {tuple(target.shape)}'
+        )
+        raise ValueError(msg)
+
+    kernel_size = _resolve_ssim_kernel_size(prediction)
+    sigma = _resolve_ssim_sigma(kernel_size)
+    channels = prediction.shape[1]
+    window = _gaussian_window(
+        kernel_size=kernel_size,
+        sigma=sigma,
+        channels=channels,
+        device=prediction.device,
+        dtype=prediction.dtype,
+    )
+    mu_prediction = _apply_window(prediction, window)
+    mu_target = _apply_window(target, window)
+
+    mu_prediction_sq = mu_prediction.square()
+    mu_target_sq = mu_target.square()
+    mu_prediction_target = mu_prediction * mu_target
+
+    sigma_prediction_sq = (
+        _apply_window(prediction.square(), window) - mu_prediction_sq
+    )
+    sigma_target_sq = _apply_window(target.square(), window) - mu_target_sq
+    sigma_prediction_target = (
+        _apply_window(prediction * target, window) - mu_prediction_target
+    )
+
+    c1 = (SSIM_K1 * max_value) ** 2
+    c2 = (SSIM_K2 * max_value) ** 2
+    numerator = (2.0 * mu_prediction_target + c1) * (
+        2.0 * sigma_prediction_target + c2
+    )
+    denominator = (mu_prediction_sq + mu_target_sq + c1) * (
+        sigma_prediction_sq + sigma_target_sq + c2
+    )
+    ssim_map = numerator / denominator.clamp_min(torch.finfo(window.dtype).eps)
+    return ssim_map.mean().item()
+
+
+def _resolve_ssim_kernel_size(tensor: torch.Tensor) -> int:
+    spatial_limit = min(
+        DEFAULT_SSIM_KERNEL_SIZE,
+        tensor.shape[2],
+        tensor.shape[3],
+    )
+    if spatial_limit % 2 == 0:
+        spatial_limit -= 1
+    return max(1, spatial_limit)
+
+
+def _resolve_ssim_sigma(kernel_size: int) -> float:
+    if kernel_size == 1:
+        return 1.0
+    return DEFAULT_SSIM_SIGMA * kernel_size / DEFAULT_SSIM_KERNEL_SIZE
+
+
+def _gaussian_window(
+    *,
+    kernel_size: int,
+    sigma: float,
+    channels: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    positions = torch.arange(kernel_size, device=device, dtype=dtype)
+    centered = positions - (kernel_size - 1) / 2.0
+    kernel_1d = torch.exp(-(centered.square()) / (2.0 * sigma * sigma))
+    kernel_1d = kernel_1d / kernel_1d.sum()
+    kernel_2d = torch.outer(kernel_1d, kernel_1d)
+    return kernel_2d.expand(channels, 1, kernel_size, kernel_size).contiguous()
+
+
+def _apply_window(tensor: torch.Tensor, window: torch.Tensor) -> torch.Tensor:
+    padding = window.shape[-1] // 2
+    if padding == 0:
+        return F.conv2d(tensor, window, groups=tensor.shape[1])
+    padded = F.pad(
+        tensor,
+        (padding, padding, padding, padding),
+        mode='replicate',
+    )
+    return F.conv2d(padded, window, groups=tensor.shape[1])
 
 
 def rgb_to_limited_y601(tensor: torch.Tensor) -> torch.Tensor:
@@ -56,6 +156,14 @@ def rgb_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
     )
 
 
+def rgb_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
+        raise ValueError('rgb_ssim expects 3-channel RGB tensors')
+    return _ssim_from_tensors(prediction, target, max_value=1.0)
+
+
 def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
     prediction = _ensure_4d(prediction)
     target = _ensure_4d(target)
@@ -66,6 +174,14 @@ def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
         target * 255.0,
         max_value=255.0,
     )
+
+
+def gray_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
+        raise ValueError('gray_ssim expects 1-channel tensors')
+    return _ssim_from_tensors(prediction, target, max_value=1.0)
 
 
 def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
@@ -85,6 +201,28 @@ def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
         )
     msg = (
         'y_psnr expects either 1-channel Y tensors or 3-channel RGB tensors '
+        'with matching shapes'
+    )
+    raise ValueError(msg)
+
+
+def y_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+
+    if (
+        prediction.shape[1] == GRAY_CHANNELS
+        and target.shape[1] == GRAY_CHANNELS
+    ):
+        return gray_ssim(prediction, target)
+    if prediction.shape[1] == RGB_CHANNELS and target.shape[1] == RGB_CHANNELS:
+        return _ssim_from_tensors(
+            rgb_to_limited_y601(prediction) / 255.0,
+            rgb_to_limited_y601(target) / 255.0,
+            max_value=1.0,
+        )
+    msg = (
+        'y_ssim expects either 1-channel Y tensors or 3-channel RGB tensors '
         'with matching shapes'
     )
     raise ValueError(msg)

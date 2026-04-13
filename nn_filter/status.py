@@ -12,22 +12,28 @@ from .metrics import (
     batch_vmaf,
     ensure_vmaf_runtime_available,
     gray_psnr,
+    gray_ssim,
     rgb_psnr,
+    rgb_ssim,
     y_psnr,
+    y_ssim,
 )
 
 MetricFunction = Callable[[torch.Tensor, torch.Tensor], float]
 
 BASE_METRIC_FUNCTIONS: dict[str, MetricFunction] = {
     'gray_psnr': gray_psnr,
+    'gray_ssim': gray_ssim,
     'rgb_psnr': rgb_psnr,
+    'rgb_ssim': rgb_ssim,
     'vmaf': batch_vmaf,
     'y_psnr': y_psnr,
+    'y_ssim': y_ssim,
 }
 
 COLOR_BASE_METRICS: dict[ColorMode, list[str]] = {
-    'rgb': ['y_psnr', 'rgb_psnr', 'vmaf'],
-    'y-only': ['y_psnr', 'gray_psnr', 'vmaf'],
+    'rgb': ['y_psnr', 'y_ssim', 'rgb_psnr', 'rgb_ssim', 'vmaf'],
+    'y-only': ['y_psnr', 'y_ssim', 'gray_psnr', 'gray_ssim', 'vmaf'],
 }
 
 
