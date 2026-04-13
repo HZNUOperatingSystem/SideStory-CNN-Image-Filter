@@ -2,11 +2,12 @@ import argparse
 from pathlib import Path
 
 import torch
-from dataset import ImageRestorationDataset
-from model import CNNFilter
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from .dataset import ImageRestorationDataset
+from .model import CNNFilter
 
 
 def get_device() -> torch.device:
@@ -26,8 +27,8 @@ def train_epoch(
 ) -> float:
     model.train()
     total_loss = 0.0
-    for low, high in tqdm(loader, desc='train'):
-        low, high = low.to(device), high.to(device)
+    for low_batch, high_batch in tqdm(loader, desc='train'):
+        low, high = low_batch.to(device), high_batch.to(device)
         optimizer.zero_grad()
         pred = model(low)
         loss = criterion(pred, high)
@@ -46,8 +47,8 @@ def validate(
     model.eval()
     total_loss = 0.0
     with torch.no_grad():
-        for low, high in tqdm(loader, desc='val'):
-            low, high = low.to(device), high.to(device)
+        for low_batch, high_batch in tqdm(loader, desc='val'):
+            low, high = low_batch.to(device), high_batch.to(device)
             pred = model(low)
             loss = criterion(pred, high)
             total_loss += loss.item()
