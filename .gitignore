@@ -6,6 +6,10 @@ dist/
 wheels/
 *.egg-info
 .venv
+.ruff_cache
+
+# preferences
+/.vscode
 
 # os-related
 .DS_Store
