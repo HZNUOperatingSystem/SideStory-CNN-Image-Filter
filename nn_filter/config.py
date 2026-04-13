@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal
 
 ColorMode = Literal['rgb', 'y-only']
+ExportPrecision = Literal['fp32', 'fp16', 'bf16', 'int8']
 StatusSelection = bool | list[str]
 
 
@@ -33,6 +34,17 @@ class InferConfig:
     ckpt: Path | None = None
     input: Path = Path()
     output: Path | None = None
+
+
+@dataclass(slots=True)
+class OnnxExportConfig:
+    run_dir: Path | None = None
+    ckpt: Path | None = None
+    output: Path | None = None
+    precision: ExportPrecision = 'fp32'
+    height: int = 1080
+    width: int = 1920
+    opset: int = 17
 
 
 # MARK: - helpers
