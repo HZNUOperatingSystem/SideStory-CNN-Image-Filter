@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .config import TrainConfig, color_mode_channels
-from .dataset import ImageRestorationDataset
+from .data_setup import create_dataset
 from .model import CNNFilter
 
 
@@ -62,21 +62,21 @@ def train_model(
     training_device = device if device is not None else get_device()
     print(f'Using device: {training_device}')
 
-    train_dataset = ImageRestorationDataset(
+    train_dataset, train_image_size = create_dataset(
         config.train_manifest,
         color_mode=config.color_mode,
         patch_size=config.patch_size,
         random_crop=True,
     )
-    val_dataset = ImageRestorationDataset(
+    val_dataset, val_image_size = create_dataset(
         config.val_manifest,
         color_mode=config.color_mode,
         patch_size=config.patch_size,
     )
-    if train_dataset.image_size != val_dataset.image_size:
+    if train_image_size != val_image_size:
         msg = (
             'Train and validation image sizes must match: '
-            f'{train_dataset.image_size} vs {val_dataset.image_size}'
+            f'{train_image_size} vs {val_image_size}'
         )
         raise ValueError(msg)
 
@@ -84,7 +84,7 @@ def train_model(
     print(
         'Loaded datasets: '
         f'train={len(train_dataset)}, val={len(val_dataset)}, '
-        f'image_size={train_dataset.image_size}, '
+        f'image_size={train_image_size}, '
         f'color_mode={config.color_mode}, '
         f'patch_size={config.patch_size}'
     )
