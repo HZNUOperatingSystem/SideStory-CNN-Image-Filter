@@ -23,8 +23,13 @@ def progress(iterable: Iterable[T], *, desc: str) -> Iterable[T]:
     )
 
 
+def print_text(text: Text) -> None:
+    with tqdm.external_write_mode():
+        console.print(text)
+
+
 def print_device(device: object) -> None:
-    console.print(
+    print_text(
         Text.assemble(
             ('device', 'bold blue'),
             ': ',
@@ -34,7 +39,7 @@ def print_device(device: object) -> None:
 
 
 def print_run_directory(run_dir: Path) -> None:
-    console.print(
+    print_text(
         Text.assemble(
             ('run', 'bold blue'),
             ': ',
@@ -60,7 +65,7 @@ def print_dataset_summary(
     summary.append(f'color_mode={color_mode}', style='magenta')
     summary.append(' | ', style='dim')
     summary.append(f'patch_size={patch_size}', style='blue')
-    console.print(summary)
+    print_text(summary)
 
 
 def print_batching_adjustment(
@@ -69,7 +74,7 @@ def print_batching_adjustment(
     requested_batch_size: int,
     actual_batch_size: int,
 ) -> None:
-    console.print(
+    print_text(
         Text.assemble(
             ('batching', 'bold blue'),
             ': ',
@@ -94,14 +99,16 @@ def print_epoch_summary(
     val_loss: float,
 ) -> None:
     summary = Text()
-    summary.append(f'epoch {epoch}/{total_epochs}', style='bold cyan')
+    summary.append(f'epoch {epoch}/{total_epochs}', style='magenta')
     summary.append(' | ', style='dim')
-    summary.append('train_loss=', style='white')
+    summary.append('train_loss', style='white')
+    summary.append('=', style='dim')
     summary.append(f'{train_loss:.4f}', style='bold green')
     summary.append(' | ', style='dim')
-    summary.append('val_loss=', style='white')
+    summary.append('val_loss', style='white')
+    summary.append('=', style='dim')
     summary.append(f'{val_loss:.4f}', style='bold yellow')
-    console.print(summary)
+    print_text(summary)
 
 
 def save_terminal_log(log_path: Path) -> None:

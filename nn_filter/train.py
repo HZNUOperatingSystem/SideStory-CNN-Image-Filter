@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Protocol
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -8,14 +11,30 @@ from .model import CNNFilter
 from .runs import RunManager
 from .status import ensure_status_runtime_available, resolve_status_config
 from .ui import (
-    console,
     print_batching_adjustment,
     print_dataset_summary,
     print_device,
     print_epoch_summary,
+    print_text,
     progress,
 )
 from .validation import Validator
+
+
+class _ClosableQueue(Protocol):
+    def cancel_join_thread(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class _TerminableWorker(Protocol):
+    def is_alive(self) -> bool: ...
+
+    def terminate(self) -> None: ...
+
+    def join(self, timeout: float | None = None) -> None: ...
+
+    def kill(self) -> None: ...
 
 
 def get_device() -> torch.device:
@@ -50,6 +69,8 @@ def train_model(
     config: TrainConfig, *, device: torch.device | None = None
 ) -> None:
     training_device = device if device is not None else get_device()
+    train_loader: DataLoader | None = None
+    val_loader: DataLoader | None = None
     status_config = resolve_status_config(
         config.status,
         target_value=config.target_value,
@@ -154,8 +175,10 @@ def train_model(
                 validation=validation,
             )
             for line in epoch_record.lines:
-                console.print(line)
+                print_text(line)
     finally:
+        _shutdown_loader_workers(train_loader)
+        _shutdown_loader_workers(val_loader)
         run.close()
 
 
@@ -186,3 +209,50 @@ def _resolve_batch_size(
     if patch_size is not None or not has_mixed_resolution:
         return requested_batch_size
     return 1
+
+
+def _shutdown_loader_workers(loader: DataLoader | None) -> None:
+    if loader is None:
+        return
+    iterator = getattr(loader, '_iterator', None)
+    if iterator is None:
+        return
+
+    if hasattr(iterator, '_shutdown'):
+        iterator._shutdown = True
+    _close_queue(getattr(iterator, '_worker_result_queue', None))
+    index_queues = getattr(iterator, '_index_queues', None)
+    if index_queues is not None:
+        for queue in index_queues:
+            _close_queue(queue)
+    _terminate_workers(getattr(iterator, '_workers', None))
+    loader._iterator = None
+
+
+def _close_queue(queue: _ClosableQueue | None) -> None:
+    if queue is None:
+        return
+    cancel_join_thread = getattr(queue, 'cancel_join_thread', None)
+    close = getattr(queue, 'close', None)
+    if callable(cancel_join_thread):
+        cancel_join_thread()
+    if callable(close):
+        close()
+
+
+def _terminate_workers(
+    workers: Iterable[_TerminableWorker] | None,
+) -> None:
+    if workers is None:
+        return
+    for worker in workers:
+        _terminate_worker(worker)
+
+
+def _terminate_worker(worker: _TerminableWorker) -> None:
+    if worker.is_alive():
+        worker.terminate()
+        worker.join(timeout=0.5)
+    if worker.is_alive():
+        worker.kill()
+        worker.join(timeout=0.5)
