@@ -2,10 +2,13 @@ from pathlib import Path
 
 import torch
 from PIL import Image
+from torchvision import transforms
 
 EXPECTED_IMAGE_NDIM = 3
 GRAY_CHANNELS = 1
 RGB_CHANNELS = 3
+IMAGE_SUFFIXES = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+_TO_TENSOR = transforms.ToTensor()
 
 
 def save_image_tensor(tensor: torch.Tensor, path: Path) -> None:
@@ -34,3 +37,20 @@ def save_image_tensor(tensor: torch.Tensor, path: Path) -> None:
         f'got {image_tensor.shape[0]}'
     )
     raise ValueError(msg)
+
+
+def load_image_tensor(
+    path: Path,
+    *,
+    color_mode: str,
+) -> torch.Tensor:
+    with Image.open(path) as image:
+        if color_mode == 'rgb':
+            converted = image.convert('RGB')
+        else:
+            converted = image.convert('YCbCr').split()[0]
+        return _TO_TENSOR(converted)
+
+
+def is_image_path(path: Path) -> bool:
+    return path.suffix.lower() in IMAGE_SUFFIXES

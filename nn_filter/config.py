@@ -25,6 +25,14 @@ class TrainConfig:
     num_workers: int = 2
 
 
+@dataclass(slots=True)
+class InferConfig:
+    run_dir: Path | None = None
+    ckpt: Path | None = None
+    input: Path = Path()
+    output: Path | None = None
+
+
 # MARK: - helpers
 
 
