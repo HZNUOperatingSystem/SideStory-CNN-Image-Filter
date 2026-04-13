@@ -36,7 +36,7 @@ class ResolvedStatusConfig:
     selected_statuses: list[str]
     selected_metrics: list[str]
     target_value: str | None
-    watched_best_metrics: list[str]
+    watched_best_statuses: list[str]
 
 
 @dataclass(slots=True)
@@ -44,6 +44,7 @@ class StatusSummary:
     current_metrics: dict[str, float]
     best_metrics: dict[str, float]
     status_values: dict[str, float]
+    best_status_values: dict[str, float]
 
 
 class StatusTracker:
@@ -61,6 +62,7 @@ class StatusTracker:
         }
         self.sample_count = 0
         self.best_metrics: dict[str, float] = {}
+        self.best_status_values: dict[str, float] = {}
 
     def update(
         self,
@@ -95,6 +97,7 @@ class StatusTracker:
                 current_metrics={},
                 best_metrics={},
                 status_values={},
+                best_status_values={},
             )
 
         current_metrics = {
@@ -119,11 +122,17 @@ class StatusTracker:
             )
             for status_name in self.status_config.selected_statuses
         }
+        for status_name, status_value in status_values.items():
+            self.best_status_values[status_name] = max(
+                self.best_status_values.get(status_name, status_value),
+                status_value,
+            )
         self._reset_epoch()
         return StatusSummary(
             current_metrics=current_metrics,
             best_metrics=dict(self.best_metrics),
             status_values=status_values,
+            best_status_values=dict(self.best_status_values),
         )
 
     def _reset_epoch(self) -> None:
@@ -165,17 +174,17 @@ def resolve_status_config(
         msg = f'target_value must also be enabled in status: {target_value}'
         raise ValueError(msg)
 
-    invalid_best = sorted(set(watched_best) - set(selected_metrics))
+    invalid_best = sorted(set(watched_best) - set(selected_statuses))
     if invalid_best:
         joined = ', '.join(invalid_best)
-        msg = f'watched_best metrics must also be enabled in status: {joined}'
+        msg = f'watched_best statuses must also be enabled in status: {joined}'
         raise ValueError(msg)
 
     return ResolvedStatusConfig(
         selected_statuses=selected_statuses,
         selected_metrics=selected_metrics,
         target_value=target_value,
-        watched_best_metrics=list(watched_best),
+        watched_best_statuses=list(watched_best),
     )
 
 
@@ -284,21 +293,21 @@ def format_watched_value_line(
 
 
 def format_best_values_line(
-    best_metrics: Mapping[str, float],
+    best_values: Mapping[str, float],
     *,
-    selected_metrics: list[str],
+    selected_statuses: list[str],
 ) -> Text:
     line = Text()
     line.append('best values', style='dim')
     line.append(': ', style='dim')
     first = True
-    for name in selected_metrics:
+    for name in selected_statuses:
         if not first:
             line.append(' | ', style='dim')
         first = False
         line.append(name, style='cyan')
         line.append('=', style='dim')
-        line.append_text(format_status_value(name, best_metrics[name]))
+        line.append_text(format_status_value(name, best_values[name]))
     return line
 
 

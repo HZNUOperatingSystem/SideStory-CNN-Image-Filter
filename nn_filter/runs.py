@@ -89,11 +89,11 @@ class RunManager:
                     best=best_value,
                 )
             )
-        if self.status_config.watched_best_metrics:
+        if self.status_config.watched_best_statuses:
             lines.append(
                 format_best_values_line(
-                    validation.best_metrics,
-                    selected_metrics=self.status_config.watched_best_metrics,
+                    validation.best_status_values,
+                    selected_statuses=self.status_config.watched_best_statuses,
                 )
             )
         if self.status_config.selected_metrics:

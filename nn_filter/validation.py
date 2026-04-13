@@ -14,6 +14,7 @@ class ValidationSummary:
     current_metrics: dict[str, float]
     best_metrics: dict[str, float]
     status_values: dict[str, float]
+    best_status_values: dict[str, float]
 
 
 class Validator:
@@ -56,4 +57,5 @@ class Validator:
             current_metrics=status_summary.current_metrics,
             best_metrics=status_summary.best_metrics,
             status_values=status_summary.status_values,
+            best_status_values=status_summary.best_status_values,
         )
