@@ -24,7 +24,10 @@ def add_dataclass_arguments(
             'dest': field.name,
             'default': argparse.SUPPRESS,
         }
-        if _is_bool_annotation(field.type):
+        if _is_bool_or_str_list_annotation(field.type):
+            argument_kwargs['nargs'] = '*'
+            argument_kwargs['type'] = str
+        elif _is_bool_annotation(field.type):
             argument_kwargs['action'] = argparse.BooleanOptionalAction
         else:
             argument_kwargs['type'] = _argument_type(field.type)
@@ -134,28 +137,33 @@ def _coerce_value(
     literal_choices = _literal_choices(resolved_type)
 
     if resolved_type is Path:
-        return _coerce_path(value, base_dir=base_dir)
-    if literal_choices is not None:
+        result = _coerce_path(value, base_dir=base_dir)
+    elif _is_bool_or_str_list_annotation(field.type):
+        result = _coerce_bool_or_str_list(field, value)
+    elif literal_choices is not None:
         if value not in literal_choices:
             msg = (
                 f'Field {field.name} must be one of {literal_choices}, '
                 f'got {value!r}'
             )
             raise ValueError(msg)
-        return value
-    if resolved_type in {str, int, float, bool}:
-        return resolved_type(value)
-    if origin is list:
+        result = value
+    elif resolved_type in {str, int, float, bool}:
+        result = resolved_type(value)
+    elif origin is list:
         item_type = get_args(resolved_type)[0]
         if not isinstance(value, list):
             msg = f'Field {field.name} must be a list.'
             raise TypeError(msg)
-        return [
+        result = [
             _coerce_list_item(item_type, item, base_dir=base_dir)
             for item in value
         ]
-    msg = f'Unsupported config field type for {field.name}: {field.type!r}'
-    raise TypeError(msg)
+    else:
+        msg = f'Unsupported config field type for {field.name}: {field.type!r}'
+        raise TypeError(msg)
+
+    return result
 
 
 def _coerce_list_item(
@@ -189,6 +197,27 @@ def _unwrap_optional(annotation: Any) -> Any:
 
 def _is_bool_annotation(annotation: Any) -> bool:
     return _unwrap_optional(annotation) is bool
+
+
+def _is_bool_or_str_list_annotation(annotation: Any) -> bool:
+    resolved_type = _unwrap_optional(annotation)
+    origin = get_origin(resolved_type)
+    if origin not in {types.UnionType, Union}:
+        return False
+
+    args = set(get_args(resolved_type))
+    return bool in args and list[str] in args
+
+
+def _coerce_bool_or_str_list(field: Field[Any], value: Any) -> bool | list[str]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, list):
+        if not value:
+            return True
+        return [str(item) for item in value]
+    msg = f'Field {field.name} must be a bool or list of strings.'
+    raise TypeError(msg)
 
 
 def _literal_choices(annotation: Any) -> tuple[Any, ...] | None:

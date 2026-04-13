@@ -39,8 +39,7 @@ def load_image_pairs(manifest_path: Path) -> list[ImagePair]:
         if missing_fields:
             joined_fields = ', '.join(missing_fields)
             msg = (
-                f'Manifest {manifest_path} is missing columns: '
-                f'{joined_fields}'
+                f'Manifest {manifest_path} is missing columns: {joined_fields}'
             )
             raise ValueError(msg)
 
@@ -50,10 +49,7 @@ def load_image_pairs(manifest_path: Path) -> list[ImagePair]:
             relative_path = (row['path'] or '').strip()
 
             if not sample_name or not kind or not relative_path:
-                msg = (
-                    f'Incomplete row in {manifest_path} '
-                    f'at line {line_number}'
-                )
+                msg = f'Incomplete row in {manifest_path} at line {line_number}'
                 raise ValueError(msg)
 
             if kind not in {'source', 'target'}:

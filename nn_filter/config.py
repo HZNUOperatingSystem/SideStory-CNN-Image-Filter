@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal
 
 ColorMode = Literal['rgb', 'y-only']
+StatusSelection = bool | list[str]
 
 
 # MARK: - configs
@@ -14,6 +15,7 @@ class TrainConfig:
     val_manifest: Path
     color_mode: ColorMode = 'rgb'
     patch_size: int | None = None
+    status: StatusSelection = False
     epochs: int = 10
     batch_size: int = 8
     lr: float = 1e-3

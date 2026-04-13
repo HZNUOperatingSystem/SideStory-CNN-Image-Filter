@@ -9,6 +9,13 @@ from tqdm import tqdm
 from .config import TrainConfig, color_mode_channels
 from .data_setup import create_dataset
 from .model import CNNFilter
+from .ui import (
+    console,
+    print_dataset_summary,
+    print_device,
+    print_epoch_summary,
+)
+from .validation import Validator
 
 
 def get_device() -> torch.device:
@@ -39,28 +46,11 @@ def train_epoch(
     return total_loss / len(loader)
 
 
-def validate(
-    model: nn.Module,
-    loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    model.eval()
-    total_loss = 0.0
-    with torch.no_grad():
-        for low_batch, high_batch in tqdm(loader, desc='val'):
-            low, high = low_batch.to(device), high_batch.to(device)
-            pred = model(low)
-            loss = criterion(pred, high)
-            total_loss += loss.item()
-    return total_loss / len(loader)
-
-
 def train_model(
     config: TrainConfig, *, device: torch.device | None = None
 ) -> None:
     training_device = device if device is not None else get_device()
-    print(f'Using device: {training_device}')
+    print_device(training_device)
 
     train_dataset, train_image_size = create_dataset(
         config.train_manifest,
@@ -81,12 +71,12 @@ def train_model(
         raise ValueError(msg)
 
     model_config = {'color_mode': config.color_mode}
-    print(
-        'Loaded datasets: '
-        f'train={len(train_dataset)}, val={len(val_dataset)}, '
-        f'image_size={train_image_size}, '
-        f'color_mode={config.color_mode}, '
-        f'patch_size={config.patch_size}'
+    print_dataset_summary(
+        train_count=len(train_dataset),
+        val_count=len(val_dataset),
+        image_size=train_image_size,
+        color_mode=config.color_mode,
+        patch_size=config.patch_size,
     )
 
     train_loader = DataLoader(
@@ -102,11 +92,16 @@ def train_model(
         num_workers=config.num_workers,
     )
 
-    model = CNNFilter(
-        in_channels=color_mode_channels(config.color_mode)
-    ).to(training_device)
+    model = CNNFilter(in_channels=color_mode_channels(config.color_mode)).to(
+        training_device
+    )
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    validator = Validator(
+        criterion,
+        color_mode=config.color_mode,
+        status=config.status,
+    )
 
     save_dir = config.save_dir
     save_dir.mkdir(exist_ok=True)
@@ -115,11 +110,15 @@ def train_model(
         train_loss = train_epoch(
             model, train_loader, optimizer, criterion, training_device
         )
-        val_loss = validate(model, val_loader, criterion, training_device)
-        print(
-            f'Epoch {epoch + 1}/{config.epochs}, '
-            f'train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f}'
+        validation = validator.evaluate(model, val_loader, training_device)
+        print_epoch_summary(
+            epoch=epoch + 1,
+            total_epochs=config.epochs,
+            train_loss=train_loss,
+            val_loss=validation.loss,
         )
+        if validation.status_line is not None:
+            console.print(validation.status_line)
         _save_checkpoint(
             save_dir / f'epoch_{epoch + 1}.pt',
             model=model,
