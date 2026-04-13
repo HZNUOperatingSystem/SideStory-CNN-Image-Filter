@@ -4,8 +4,10 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "kaleido>=1.2.0",
     "numpy>=2.4.4",
     "pillow>=12.2.0",
+    "plotly>=6.5.0",
     "rich>=15.0.0",
     "torch>=2.11.0",
     "torchvision>=0.26.0",

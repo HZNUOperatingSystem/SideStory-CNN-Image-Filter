@@ -9,6 +9,7 @@ import torch
 from rich.text import Text
 from torch import nn
 
+from .plotting import EpochPlotRecord, write_training_metrics_plot
 from .status import (
     ResolvedStatusConfig,
     format_best_values_line,
@@ -26,6 +27,13 @@ class EpochRecord:
     lines: list[Text]
 
 
+@dataclass(frozen=True, slots=True)
+class EpochTrainingState:
+    epoch: int
+    train_loss: float
+    lr: float
+
+
 class RunManager:
     def __init__(
         self,
@@ -41,6 +49,7 @@ class RunManager:
             else 'val_loss'
         )
         self.best_value: float | None = None
+        self.history: list[EpochPlotRecord] = []
 
     @classmethod
     def open(
@@ -62,15 +71,27 @@ class RunManager:
         *,
         model: nn.Module,
         model_config: Mapping[str, str],
-        epoch: int,
+        epoch_state: EpochTrainingState,
         validation: ValidationSummary,
     ) -> EpochRecord:
         value = self._resolve_value(validation)
         best_value = self._update_best_value(value)
+        self.history.append(
+            EpochPlotRecord(
+                epoch=epoch_state.epoch,
+                train_loss=epoch_state.train_loss,
+                val_loss=validation.loss,
+                lr=epoch_state.lr,
+                current_metrics=dict(validation.current_metrics),
+                best_metrics=dict(validation.best_metrics),
+                status_values=dict(validation.status_values),
+                best_status_values=dict(validation.best_status_values),
+            )
+        )
         checkpoint_data = self._checkpoint_data(
             model=model,
             model_config=model_config,
-            epoch=epoch,
+            epoch=epoch_state.epoch,
             value=value,
             best_value=best_value,
         )
@@ -106,7 +127,13 @@ class RunManager:
         return EpochRecord(lines=lines)
 
     def close(self) -> None:
-        save_terminal_log(self.run_dir / 'terminal.log')
+        try:
+            write_training_metrics_plot(
+                self.history,
+                output_path=self.run_dir / 'metrics.png',
+            )
+        finally:
+            save_terminal_log(self.run_dir / 'terminal.log')
 
     def _resolve_value(self, validation: ValidationSummary) -> float:
         if self.value_name == 'val_loss':

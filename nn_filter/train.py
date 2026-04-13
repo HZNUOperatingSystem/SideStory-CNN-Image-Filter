@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from .config import TrainConfig, color_mode_channels
 from .data_setup import create_dataset
 from .model import CNNFilter
-from .runs import RunManager
+from .runs import EpochTrainingState, RunManager
 from .status import ensure_status_runtime_available, resolve_status_config
 from .ui import (
     print_batching_adjustment,
@@ -209,7 +209,11 @@ def train_model(
             epoch_record = run.record_epoch(
                 model=model,
                 model_config=model_config,
-                epoch=epoch + 1,
+                epoch_state=EpochTrainingState(
+                    epoch=epoch + 1,
+                    train_loss=train_loss,
+                    lr=optimizer.param_groups[0]['lr'],
+                ),
                 validation=validation,
             )
             for line in epoch_record.lines:
