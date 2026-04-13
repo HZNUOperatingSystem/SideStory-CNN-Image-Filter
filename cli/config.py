@@ -4,7 +4,7 @@ import types
 from collections.abc import Mapping
 from dataclasses import MISSING, Field, fields, is_dataclass
 from pathlib import Path
-from typing import Any, TypeVar, Union, get_args, get_origin
+from typing import Any, Literal, TypeVar, Union, get_args, get_origin
 
 ConfigT = TypeVar('ConfigT')
 
@@ -28,6 +28,9 @@ def add_dataclass_arguments(
             argument_kwargs['action'] = argparse.BooleanOptionalAction
         else:
             argument_kwargs['type'] = _argument_type(field.type)
+            literal_choices = _literal_choices(field.type)
+            if literal_choices is not None:
+                argument_kwargs['choices'] = literal_choices
         parser.add_argument(*option_names, **argument_kwargs)
 
 
@@ -114,6 +117,9 @@ def coerce_config_mapping(
 
 def _argument_type(annotation: Any) -> type[Any]:
     resolved_type = _unwrap_optional(annotation)
+    literal_choices = _literal_choices(resolved_type)
+    if literal_choices is not None:
+        return type(literal_choices[0])
     if resolved_type in {str, int, float, Path}:
         return resolved_type
     msg = f'Unsupported CLI argument type: {annotation!r}'
@@ -125,9 +131,18 @@ def _coerce_value(
 ) -> Any:
     resolved_type = _unwrap_optional(field.type)
     origin = get_origin(resolved_type)
+    literal_choices = _literal_choices(resolved_type)
 
     if resolved_type is Path:
         return _coerce_path(value, base_dir=base_dir)
+    if literal_choices is not None:
+        if value not in literal_choices:
+            msg = (
+                f'Field {field.name} must be one of {literal_choices}, '
+                f'got {value!r}'
+            )
+            raise ValueError(msg)
+        return value
     if resolved_type in {str, int, float, bool}:
         return resolved_type(value)
     if origin is list:
@@ -174,3 +189,10 @@ def _unwrap_optional(annotation: Any) -> Any:
 
 def _is_bool_annotation(annotation: Any) -> bool:
     return _unwrap_optional(annotation) is bool
+
+
+def _literal_choices(annotation: Any) -> tuple[Any, ...] | None:
+    resolved_type = _unwrap_optional(annotation)
+    if get_origin(resolved_type) is Literal:
+        return get_args(resolved_type)
+    return None

@@ -1,6 +1,8 @@
 # train config
 train_manifest = "data/train.datalist.csv"
 val_manifest = "data/val.datalist.csv"
+color_mode = "rgb"
+patch_size = 128
 epochs = 10
 batch_size = 8
 lr = 0.001

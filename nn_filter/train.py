@@ -1,9 +1,12 @@
+from collections.abc import Mapping
+from pathlib import Path
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from .config import TrainConfig
+from .config import TrainConfig, color_mode_channels
 from .dataset import ImageRestorationDataset
 from .model import CNNFilter
 
@@ -59,8 +62,17 @@ def train_model(
     training_device = device if device is not None else get_device()
     print(f'Using device: {training_device}')
 
-    train_dataset = ImageRestorationDataset(config.train_manifest)
-    val_dataset = ImageRestorationDataset(config.val_manifest)
+    train_dataset = ImageRestorationDataset(
+        config.train_manifest,
+        color_mode=config.color_mode,
+        patch_size=config.patch_size,
+        random_crop=True,
+    )
+    val_dataset = ImageRestorationDataset(
+        config.val_manifest,
+        color_mode=config.color_mode,
+        patch_size=config.patch_size,
+    )
     if train_dataset.image_size != val_dataset.image_size:
         msg = (
             'Train and validation image sizes must match: '
@@ -68,10 +80,13 @@ def train_model(
         )
         raise ValueError(msg)
 
+    model_config = {'color_mode': config.color_mode}
     print(
         'Loaded datasets: '
         f'train={len(train_dataset)}, val={len(val_dataset)}, '
-        f'image_size={train_dataset.image_size}'
+        f'image_size={train_dataset.image_size}, '
+        f'color_mode={config.color_mode}, '
+        f'patch_size={config.patch_size}'
     )
 
     train_loader = DataLoader(
@@ -87,7 +102,9 @@ def train_model(
         num_workers=config.num_workers,
     )
 
-    model = CNNFilter().to(training_device)
+    model = CNNFilter(
+        in_channels=color_mode_channels(config.color_mode)
+    ).to(training_device)
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
@@ -103,4 +120,26 @@ def train_model(
             f'Epoch {epoch + 1}/{config.epochs}, '
             f'train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f}'
         )
-        torch.save(model.state_dict(), save_dir / f'epoch_{epoch + 1}.pt')
+        _save_checkpoint(
+            save_dir / f'epoch_{epoch + 1}.pt',
+            model=model,
+            model_config=model_config,
+            epoch=epoch + 1,
+        )
+
+
+def _save_checkpoint(
+    checkpoint_path: Path,
+    *,
+    model: nn.Module,
+    model_config: Mapping[str, str],
+    epoch: int,
+) -> None:
+    torch.save(
+        {
+            'epoch': epoch,
+            'model_config': model_config,
+            'model_state_dict': model.state_dict(),
+        },
+        checkpoint_path,
+    )
