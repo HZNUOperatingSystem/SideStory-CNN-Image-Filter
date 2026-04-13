@@ -18,9 +18,11 @@ class TrainConfig:
     status: StatusSelection = False
     target_value: str | None = None
     watched_best: list[str] = field(default_factory=list)
+    seed: int = 42
     epochs: int = 10
     batch_size: int = 8
     lr: float = 1e-3
+    lr_min: float = 1e-6
     runs_dir: Path = Path('runs')
     num_workers: int = 2
 

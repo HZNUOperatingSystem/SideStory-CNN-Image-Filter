@@ -97,6 +97,7 @@ def print_epoch_summary(
     total_epochs: int,
     train_loss: float,
     val_loss: float,
+    lr: float | None = None,
 ) -> None:
     summary = Text()
     summary.append(f'epoch {epoch}/{total_epochs}', style='magenta')
@@ -108,6 +109,11 @@ def print_epoch_summary(
     summary.append('val_loss', style='white')
     summary.append('=', style='dim')
     summary.append(f'{val_loss:.4f}', style='bold yellow')
+    if lr is not None:
+        summary.append(' | ', style='dim')
+        summary.append('lr', style='white')
+        summary.append('=', style='dim')
+        summary.append(f'{lr:.2e}', style='magenta')
     print_text(summary)
 
 

@@ -2,11 +2,18 @@ import csv
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-
-from PIL import Image
+from typing import Literal
 
 from .config import ColorMode
-from .dataset import ImagePair, ImageRestorationDataset
+from .dataset import (
+    CachedImagePair,
+    DatasetSample,
+    ImagePair,
+    ImageRestorationDataset,
+)
+from .io_utils import load_image_tensor
+
+DatasetBuildMode = Literal['full-image', 'patch-grid']
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,18 +37,22 @@ def create_dataset(
     *,
     color_mode: ColorMode = 'rgb',
     patch_size: int | None = None,
-    random_crop: bool = False,
+    build_mode: DatasetBuildMode = 'full-image',
 ) -> tuple[ImageRestorationDataset, DatasetSummary]:
-    samples = load_image_pairs(manifest_path)
-    summary = validate_image_pairs(
-        samples, manifest_path=manifest_path, patch_size=patch_size
-    )
-    dataset = ImageRestorationDataset(
-        samples,
+    pairs = load_image_pairs(manifest_path)
+    cached_pairs, summary = cache_image_pairs(
+        pairs,
+        manifest_path=manifest_path,
         color_mode=color_mode,
-        patch_size=patch_size,
-        random_crop=random_crop,
+        patch_size=patch_size if build_mode == 'patch-grid' else None,
     )
+    samples = build_dataset_samples(
+        cached_pairs,
+        manifest_path=manifest_path,
+        build_mode=build_mode,
+        patch_size=patch_size,
+    )
+    dataset = ImageRestorationDataset(cached_pairs, samples)
     return dataset, summary
 
 
@@ -89,7 +100,7 @@ def load_image_pairs(manifest_path: Path) -> list[ImagePair]:
         msg = f'No samples found in manifest: {manifest_path}'
         raise ValueError(msg)
 
-    samples: list[ImagePair] = []
+    pairs: list[ImagePair] = []
     for sample_name in sorted(grouped_rows):
         sample_rows = grouped_rows[sample_name]
         missing_kinds = sorted({'source', 'target'} - set(sample_rows))
@@ -101,59 +112,108 @@ def load_image_pairs(manifest_path: Path) -> list[ImagePair]:
             )
             raise ValueError(msg)
 
-        samples.append(
+        pairs.append(
             ImagePair(
                 source_path=sample_rows['source'],
                 target_path=sample_rows['target'],
             )
         )
 
-    return samples
+    return pairs
 
 
-def validate_image_pairs(
-    samples: list[ImagePair],
+def cache_image_pairs(
+    pairs: list[ImagePair],
     *,
     manifest_path: Path,
+    color_mode: ColorMode,
     patch_size: int | None = None,
-) -> DatasetSummary:
+) -> tuple[list[CachedImagePair], DatasetSummary]:
     if patch_size is not None and patch_size <= 0:
         msg = f'patch_size must be positive, got {patch_size}'
         raise ValueError(msg)
 
     image_sizes: set[tuple[int, int]] = set()
-    for sample in samples:
-        if not sample.source_path.is_file():
-            msg = f'Source image not found: {sample.source_path}'
+    cached_pairs: list[CachedImagePair] = []
+    for pair in pairs:
+        if not pair.source_path.is_file():
+            msg = f'Source image not found: {pair.source_path}'
             raise FileNotFoundError(msg)
-        if not sample.target_path.is_file():
-            msg = f'Target image not found: {sample.target_path}'
+        if not pair.target_path.is_file():
+            msg = f'Target image not found: {pair.target_path}'
             raise FileNotFoundError(msg)
 
-        with Image.open(sample.source_path) as source_image:
-            source_size = source_image.size
-        with Image.open(sample.target_path) as target_image:
-            target_size = target_image.size
-
-        if source_size != target_size:
+        source = load_image_tensor(pair.source_path, color_mode=color_mode)
+        target = load_image_tensor(pair.target_path, color_mode=color_mode)
+        if source.shape != target.shape:
             msg = (
                 'Mismatched paired image size for '
-                f'{sample.source_path} and {sample.target_path}: '
-                f'{source_size} vs {target_size}'
+                f'{pair.source_path} and {pair.target_path}: '
+                f'{tuple(source.shape)} vs {tuple(target.shape)}'
             )
             raise ValueError(msg)
 
-        image_sizes.add(source_size)
+        height, width = source.shape[1:]
+        image_sizes.add((width, height))
+        if patch_size is not None and (
+            patch_size > width or patch_size > height
+        ):
+            msg = (
+                f'patch_size {patch_size} exceeds image size '
+                f'{(width, height)} for {pair.source_path}'
+            )
+            raise ValueError(msg)
 
-        if patch_size is not None:
-            width, height = source_size
-            if patch_size > width or patch_size > height:
-                msg = (
-                    f'patch_size {patch_size} exceeds image size '
-                    f'{source_size} for {sample.source_path}'
+        cached_pairs.append(
+            CachedImagePair(
+                source=source.contiguous(),
+                target=target.contiguous(),
+            )
+        )
+
+    summary = build_dataset_summary(image_sizes, manifest_path=manifest_path)
+    return cached_pairs, summary
+
+
+def build_dataset_samples(
+    pairs: list[CachedImagePair],
+    *,
+    manifest_path: Path,
+    build_mode: DatasetBuildMode,
+    patch_size: int | None,
+) -> list[DatasetSample]:
+    if build_mode == 'full-image':
+        return [DatasetSample(pair_index=index) for index in range(len(pairs))]
+
+    if patch_size is None or patch_size <= 0:
+        msg = 'patch_size must be a positive integer for patch-grid mode'
+        raise ValueError(msg)
+
+    samples: list[DatasetSample] = []
+    for pair_index, pair in enumerate(pairs):
+        _, height, width = pair.source.shape
+        for top in range(0, height - patch_size + 1, patch_size):
+            for left in range(0, width - patch_size + 1, patch_size):
+                samples.append(
+                    DatasetSample(
+                        pair_index=pair_index,
+                        top=top,
+                        left=left,
+                        size=patch_size,
+                    )
                 )
-                raise ValueError(msg)
 
+    if not samples:
+        msg = f'No dataset samples could be built from {manifest_path}'
+        raise ValueError(msg)
+    return samples
+
+
+def build_dataset_summary(
+    image_sizes: set[tuple[int, int]],
+    *,
+    manifest_path: Path,
+) -> DatasetSummary:
     if not image_sizes:
         msg = f'No image size could be determined from {manifest_path}'
         raise ValueError(msg)

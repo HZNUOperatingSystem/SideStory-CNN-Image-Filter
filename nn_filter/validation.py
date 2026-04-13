@@ -34,13 +34,15 @@ class Validator:
     ) -> ValidationSummary:
         model.eval()
         total_loss = 0.0
+        sample_count = 0
         with torch.no_grad():
             for low_batch, high_batch in progress(loader, desc='val'):
                 low = low_batch.to(device)
                 high = high_batch.to(device)
                 prediction = model(low)
                 loss = self.criterion(prediction, high)
-                total_loss += loss.item()
+                total_loss += loss.item() * low.shape[0]
+                sample_count += low.shape[0]
                 self.status_tracker.update(
                     prediction.detach().cpu(),
                     high.detach().cpu(),
@@ -49,7 +51,7 @@ class Validator:
         status_summary = self.status_tracker.finish_epoch()
 
         return ValidationSummary(
-            loss=total_loss / len(loader),
+            loss=total_loss / sample_count,
             current_metrics=status_summary.current_metrics,
             best_metrics=status_summary.best_metrics,
             status_values=status_summary.status_values,
