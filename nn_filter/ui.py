@@ -1,11 +1,12 @@
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TypeVar
 
 from rich.console import Console
 from rich.text import Text
 from tqdm import tqdm
 
-console = Console()
+console = Console(record=True)
 PROGRESS_COLOR = '#6b7280'
 PROGRESS_ASCII = ' .-'
 T = TypeVar('T')
@@ -32,6 +33,16 @@ def print_device(device: object) -> None:
     )
 
 
+def print_run_directory(run_dir: Path) -> None:
+    console.print(
+        Text.assemble(
+            ('run', 'bold blue'),
+            ': ',
+            (str(run_dir), 'bold green'),
+        )
+    )
+
+
 def print_dataset_summary(
     *,
     train_summary: str,
@@ -43,11 +54,11 @@ def print_dataset_summary(
     summary.append('dataset', style='bold blue')
     summary.append(': ')
     summary.append(train_summary, style='green')
-    summary.append(' | ')
+    summary.append(' | ', style='dim')
     summary.append(val_summary, style='yellow')
-    summary.append(' | ')
+    summary.append(' | ', style='dim')
     summary.append(f'color_mode={color_mode}', style='magenta')
-    summary.append(' | ')
+    summary.append(' | ', style='dim')
     summary.append(f'patch_size={patch_size}', style='blue')
     console.print(summary)
 
@@ -84,10 +95,17 @@ def print_epoch_summary(
 ) -> None:
     summary = Text()
     summary.append(f'epoch {epoch}/{total_epochs}', style='bold cyan')
-    summary.append(' | ')
+    summary.append(' | ', style='dim')
     summary.append('train_loss=', style='white')
     summary.append(f'{train_loss:.4f}', style='bold green')
-    summary.append(' | ')
+    summary.append(' | ', style='dim')
     summary.append('val_loss=', style='white')
     summary.append(f'{val_loss:.4f}', style='bold yellow')
     console.print(summary)
+
+
+def save_terminal_log(log_path: Path) -> None:
+    log_path.write_text(
+        console.export_text(styles=False, clear=False),
+        encoding='utf-8',
+    )

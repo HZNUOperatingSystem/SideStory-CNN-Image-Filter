@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -16,10 +16,12 @@ class TrainConfig:
     color_mode: ColorMode = 'rgb'
     patch_size: int | None = None
     status: StatusSelection = False
+    target_value: str | None = None
+    watched_best: list[str] = field(default_factory=list)
     epochs: int = 10
     batch_size: int = 8
     lr: float = 1e-3
-    save_dir: Path = Path('checkpoints')
+    runs_dir: Path = Path('runs')
     num_workers: int = 2
 
 

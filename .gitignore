@@ -14,6 +14,7 @@ wheels/
 # local data
 data/*
 !data/README.md
+runs/
 
 # os-related
 .DS_Store

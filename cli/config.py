@@ -24,7 +24,9 @@ def add_dataclass_arguments(
             'dest': field.name,
             'default': argparse.SUPPRESS,
         }
-        if _is_bool_or_str_list_annotation(field.type):
+        if _is_bool_or_str_list_annotation(
+            field.type
+        ) or _is_str_list_annotation(field.type):
             argument_kwargs['nargs'] = '*'
             argument_kwargs['type'] = str
         elif _is_bool_annotation(field.type):
@@ -203,6 +205,13 @@ def _is_bool_or_str_list_annotation(annotation: Any) -> bool:
 
     args = set(get_args(resolved_type))
     return bool in args and list[str] in args
+
+
+def _is_str_list_annotation(annotation: Any) -> bool:
+    resolved_type = _unwrap_optional(annotation)
+    return get_origin(resolved_type) is list and get_args(resolved_type) == (
+        str,
+    )
 
 
 def _coerce_bool_or_str_list(field: Field[Any], value: Any) -> bool | list[str]:

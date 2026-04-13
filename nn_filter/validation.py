@@ -1,19 +1,19 @@
 from dataclasses import dataclass
 
 import torch
-from rich.text import Text
 from torch import nn
 from torch.utils.data import DataLoader
 
-from .config import ColorMode, StatusSelection
-from .status import StatusTracker
+from .status import ResolvedStatusConfig, StatusTracker
 from .ui import progress
 
 
 @dataclass(slots=True)
 class ValidationSummary:
     loss: float
-    status_line: Text | None = None
+    current_metrics: dict[str, float]
+    best_metrics: dict[str, float]
+    status_values: dict[str, float]
 
 
 class Validator:
@@ -21,11 +21,10 @@ class Validator:
         self,
         criterion: nn.Module,
         *,
-        color_mode: ColorMode,
-        status: StatusSelection = False,
+        status_config: ResolvedStatusConfig,
     ) -> None:
         self.criterion = criterion
-        self.status_tracker = StatusTracker(status, color_mode=color_mode)
+        self.status_tracker = StatusTracker(status_config)
 
     def evaluate(
         self,
@@ -47,8 +46,11 @@ class Validator:
                     high.detach().cpu(),
                     batch_size=low.shape[0],
                 )
+        status_summary = self.status_tracker.finish_epoch()
 
         return ValidationSummary(
             loss=total_loss / len(loader),
-            status_line=self.status_tracker.finish_epoch(),
+            current_metrics=status_summary.current_metrics,
+            best_metrics=status_summary.best_metrics,
+            status_values=status_summary.status_values,
         )
