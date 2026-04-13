@@ -130,7 +130,7 @@ class RunManager:
         try:
             write_training_metrics_plot(
                 self.history,
-                output_path=self.run_dir / 'metrics.png',
+                output_path=self.run_dir / 'metrics.html',
             )
         finally:
             save_terminal_log(self.run_dir / 'terminal.log')
