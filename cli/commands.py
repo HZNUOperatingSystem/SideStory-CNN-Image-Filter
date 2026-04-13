@@ -24,6 +24,20 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
     add_dataclass_arguments(train_parser, TrainConfig)
     train_parser.set_defaults(command_handler=run_train)
 
+    fit_parser = subparsers.add_parser(
+        'fit',
+        help='Train the model and run inference on the validation set.',
+        description='Train the model and run inference on the validation set.',
+    )
+    fit_parser.add_argument(
+        '--config',
+        type=Path,
+        default=Path('configs/train.toml'),
+        help='Path to the training config TOML file.',
+    )
+    add_dataclass_arguments(fit_parser, TrainConfig)
+    fit_parser.set_defaults(command_handler=run_fit)
+
     infer_parser = subparsers.add_parser(
         'infer',
         help='Run model inference.',
@@ -64,10 +78,34 @@ def run_train(args: argparse.Namespace) -> None:
         TrainConfig, config_path=args.config, overrides=overrides
     )
     train_model = cast(
-        Callable[[TrainConfig], None],
+        Callable[[TrainConfig], Path],
         import_module('nn_filter.train').train_model,
     )
     train_model(config)
+
+
+def run_fit(args: argparse.Namespace) -> None:
+    overrides = namespace_overrides(
+        args, exclude={'command', 'command_handler', 'config'}
+    )
+    config = load_config(
+        TrainConfig, config_path=args.config, overrides=overrides
+    )
+    train_model = cast(
+        Callable[[TrainConfig], Path],
+        import_module('nn_filter.train').train_model,
+    )
+    run_dir = train_model(config)
+    infer_model = cast(
+        Callable[[InferConfig], None],
+        import_module('nn_filter.infer').infer_model,
+    )
+    infer_model(
+        InferConfig(
+            run_dir=run_dir,
+            input=config.val_manifest,
+        )
+    )
 
 
 def run_infer(args: argparse.Namespace) -> None:

@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Protocol
 
 import torch
@@ -83,7 +84,7 @@ def train_epoch(
 
 def train_model(
     config: TrainConfig, *, device: torch.device | None = None
-) -> None:
+) -> Path:
     set_seed(config.seed)
     training_device = device if device is not None else get_device()
     train_loader: DataLoader | None = None
@@ -221,6 +222,7 @@ def train_model(
         _shutdown_loader_workers(train_loader)
         _shutdown_loader_workers(val_loader)
         run.close()
+    return run.run_dir
 
 
 def _create_loader(
