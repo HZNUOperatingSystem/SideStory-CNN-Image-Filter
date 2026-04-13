@@ -111,6 +111,11 @@ def write_training_metrics_plot(
     figure.update_xaxes(title_text='epoch', row=len(row_specs), col=1)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.write_image(output_path, scale=2)
+    figure.write_html(
+        output_path.with_suffix('.html'),
+        include_plotlyjs='cdn',
+        full_html=True,
+    )
 
 
 def _ordered_names(mappings: Iterable[Mapping[str, float]]) -> list[str]:
