@@ -28,6 +28,12 @@ class MetricPlotSeries:
     best_values: list[float]
 
 
+@dataclass(frozen=True, slots=True)
+class PlotPanelSpec:
+    title: str
+    axis_type: str
+
+
 def write_training_metrics_plot(
     records: Sequence[EpochPlotRecord],
     *,
@@ -49,25 +55,29 @@ def write_training_metrics_plot(
             for record in records
         ]
     )
-    row_specs = _build_row_specs(metric_names, derived_status_names)
+    panel_specs = _build_panel_specs(metric_names, derived_status_names)
+    row_count = (len(panel_specs) + 1) // 2
     figure = make_subplots(
-        rows=len(row_specs),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        subplot_titles=[title for title, _ in row_specs],
+        rows=row_count,
+        cols=2,
+        shared_xaxes=False,
+        vertical_spacing=0.10,
+        horizontal_spacing=0.10,
+        subplot_titles=_subplot_titles(panel_specs, row_count=row_count),
     )
 
     epochs = [record.epoch for record in records]
-    _add_loss_traces(figure, records, epochs=epochs, row=1)
-    _add_lr_trace(figure, records, epochs=epochs, row=2)
+    _add_loss_traces(figure, records, epochs=epochs, row=1, col=1)
+    _add_lr_trace(figure, records, epochs=epochs, row=1, col=2)
 
-    row_index = 3
+    panel_index = 2
     for metric_name in metric_names:
+        row, col = _grid_position(panel_index)
         _add_metric_series(
             figure,
             epochs=epochs,
-            row=row_index,
+            row=row,
+            col=col,
             series=_build_metric_series(
                 records,
                 name=metric_name,
@@ -75,12 +85,14 @@ def write_training_metrics_plot(
                 best_key='best_metrics',
             ),
         )
-        row_index += 1
+        panel_index += 1
     for status_name in derived_status_names:
+        row, col = _grid_position(panel_index)
         _add_metric_series(
             figure,
             epochs=epochs,
-            row=row_index,
+            row=row,
+            col=col,
             series=_build_metric_series(
                 records,
                 name=status_name,
@@ -88,27 +100,24 @@ def write_training_metrics_plot(
                 best_key='best_status_values',
             ),
         )
-        row_index += 1
+        panel_index += 1
 
-    for row_number, (_, axis_type) in enumerate(row_specs, start=1):
-        if axis_type == 'log':
-            figure.update_yaxes(type='log', row=row_number, col=1)
+    for panel_index, panel_spec in enumerate(panel_specs):
+        row, col = _grid_position(panel_index)
+        if panel_spec.axis_type == 'log':
+            figure.update_yaxes(type='log', row=row, col=col)
 
     figure.update_layout(
         template='plotly_white',
         title='Training Metrics',
-        width=1800,
-        height=max(900, len(row_specs) * 320),
-        legend={
-            'orientation': 'h',
-            'yanchor': 'bottom',
-            'y': 1.02,
-            'xanchor': 'left',
-            'x': 0.0,
-        },
-        margin={'l': 80, 'r': 40, 't': 100, 'b': 70},
+        width=1280,
+        height=max(960, row_count * 420),
+        showlegend=False,
+        margin={'l': 70, 'r': 50, 't': 120, 'b': 70},
     )
-    figure.update_xaxes(title_text='epoch', row=len(row_specs), col=1)
+    figure.update_xaxes(title_text='epoch', row=row_count, col=1)
+    figure.update_xaxes(title_text='epoch', row=row_count, col=2)
+    figure.update_annotations(font={'size': 15})
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.write_html(
         output_path,
@@ -126,14 +135,41 @@ def _ordered_names(mappings: Iterable[Mapping[str, float]]) -> list[str]:
     return ordered
 
 
-def _build_row_specs(
+def _build_panel_specs(
     metric_names: list[str],
     derived_status_names: list[str],
-) -> list[tuple[str, str]]:
-    rows = [('loss', 'log'), ('lr', 'log')]
-    rows.extend((name, 'linear') for name in metric_names)
-    rows.extend((name, 'linear') for name in derived_status_names)
-    return rows
+) -> list[PlotPanelSpec]:
+    panels = [
+        PlotPanelSpec('loss [train, val]', 'log'),
+        PlotPanelSpec('lr', 'log'),
+    ]
+    panels.extend(
+        PlotPanelSpec(f'{name} [current, best]', 'linear')
+        for name in metric_names
+    )
+    panels.extend(
+        PlotPanelSpec(f'{name} [current, best]', 'linear')
+        for name in derived_status_names
+    )
+    return panels
+
+
+def _subplot_titles(
+    panel_specs: list[PlotPanelSpec],
+    *,
+    row_count: int,
+) -> list[str]:
+    titles = [panel.title for panel in panel_specs]
+    target_count = row_count * 2
+    while len(titles) < target_count:
+        titles.append('')
+    return titles
+
+
+def _grid_position(panel_index: int) -> tuple[int, int]:
+    row = panel_index // 2 + 1
+    col = panel_index % 2 + 1
+    return row, col
 
 
 def _add_loss_traces(
@@ -142,6 +178,7 @@ def _add_loss_traces(
     *,
     epochs: list[int],
     row: int,
+    col: int,
 ) -> None:
     train_loss = [record.train_loss for record in records]
     val_loss = [record.val_loss for record in records]
@@ -155,7 +192,7 @@ def _add_loss_traces(
             marker={'size': 6},
         ),
         row=row,
-        col=1,
+        col=col,
     )
     figure.add_trace(
         go.Scatter(
@@ -167,7 +204,7 @@ def _add_loss_traces(
             marker={'size': 6},
         ),
         row=row,
-        col=1,
+        col=col,
     )
 
 
@@ -177,6 +214,7 @@ def _add_lr_trace(
     *,
     epochs: list[int],
     row: int,
+    col: int,
 ) -> None:
     lr_values = [record.lr for record in records]
     figure.add_trace(
@@ -189,7 +227,7 @@ def _add_lr_trace(
             marker={'size': 6},
         ),
         row=row,
-        col=1,
+        col=col,
     )
 
 
@@ -220,6 +258,7 @@ def _add_metric_series(
     *,
     epochs: list[int],
     row: int,
+    col: int,
     series: MetricPlotSeries,
 ) -> None:
     figure.add_trace(
@@ -232,7 +271,7 @@ def _add_metric_series(
             marker={'size': 6},
         ),
         row=row,
-        col=1,
+        col=col,
     )
     if _has_distinct_best_series(
         series.current_values, series.best_values
@@ -246,7 +285,7 @@ def _add_metric_series(
                 line={'width': 2, 'dash': 'dash'},
             ),
             row=row,
-            col=1,
+            col=col,
         )
 
 
