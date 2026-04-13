@@ -4,7 +4,7 @@ import onnx
 import torch
 from onnxruntime.quantization import QuantType, quantize_dynamic
 
-from .config import OnnxExportConfig, color_mode_channels
+from .config import ExportPrecision, OnnxExportConfig, color_mode_channels
 from .onnx_export_setup import export_dtype, load_export_checkpoint
 
 
@@ -27,7 +27,6 @@ class ExportSpec:
 
 def export_onnx_model(config: OnnxExportConfig) -> Path:
     loaded = load_export_checkpoint(config)
-    model = loaded.model.cpu()
     export_spec = ExportSpec(
         output_path=loaded.output_path,
         in_channels=color_mode_channels(loaded.color_mode),
@@ -45,14 +44,20 @@ def export_onnx_model(config: OnnxExportConfig) -> Path:
 
     if loaded.precision == 'int8':
         _export_int8_onnx(
-            model=model,
+            model=loaded.model.cpu(),
             export_spec=export_spec,
         )
     else:
+        export_device = _select_export_device(loaded.precision)
         _export_typed_onnx(
-            model=model.to(dtype=export_dtype(loaded.precision)),
+            model=loaded.model.to(
+                device=export_device,
+                dtype=export_dtype(loaded.precision),
+            ),
             export_spec=export_spec,
             dtype=export_dtype(loaded.precision),
+            device=export_device,
+            do_constant_folding=loaded.precision == 'fp32',
         )
 
     onnx_model = onnx.load(export_spec.output_path)
@@ -65,6 +70,8 @@ def _export_typed_onnx(
     model: torch.nn.Module,
     export_spec: ExportSpec,
     dtype: torch.dtype,
+    device: torch.device,
+    do_constant_folding: bool,
 ) -> None:
     dummy_input = torch.zeros(
         1,
@@ -72,6 +79,7 @@ def _export_typed_onnx(
         export_spec.height,
         export_spec.width,
         dtype=dtype,
+        device=device,
     )
     torch.onnx.export(
         model,
@@ -79,7 +87,7 @@ def _export_typed_onnx(
         export_spec.output_path,
         export_params=True,
         opset_version=export_spec.opset,
-        do_constant_folding=True,
+        do_constant_folding=do_constant_folding,
         input_names=['input'],
         output_names=['output'],
         dynamic_axes={
@@ -106,6 +114,8 @@ def _export_int8_onnx(
                 opset=export_spec.opset,
             ),
             dtype=torch.float32,
+            device=torch.device('cpu'),
+            do_constant_folding=True,
         )
         quantize_dynamic(
             intermediate_path,
@@ -114,3 +124,9 @@ def _export_int8_onnx(
         )
     finally:
         intermediate_path.unlink(missing_ok=True)
+
+
+def _select_export_device(precision: ExportPrecision) -> torch.device:
+    if precision in {'fp16', 'bf16'} and torch.cuda.is_available():
+        return torch.device('cuda')
+    return torch.device('cpu')
