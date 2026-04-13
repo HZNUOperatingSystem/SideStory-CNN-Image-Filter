@@ -11,5 +11,9 @@ wheels/
 # preferences
 /.vscode
 
+# local data
+data/*
+!data/README.md
+
 # os-related
 .DS_Store
