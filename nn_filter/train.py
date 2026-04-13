@@ -120,11 +120,7 @@ def train_model(
             has_mixed_resolution=train_summary.has_mixed_resolution,
             patch_size=config.patch_size,
         )
-        val_batch_size = _resolve_batch_size(
-            requested_batch_size=config.batch_size,
-            has_mixed_resolution=val_summary.has_mixed_resolution,
-            patch_size=None,
-        )
+        val_batch_size = 1
         print_dataset_summary(
             train_summary=(
                 f'train={len(train_dataset)} '
