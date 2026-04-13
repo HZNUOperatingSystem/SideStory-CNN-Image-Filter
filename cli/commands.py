@@ -1,7 +1,10 @@
 import argparse
+from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
+from typing import cast
 
-from nn_filter.train import TrainConfig, train_model
+from nn_filter.config import TrainConfig
 
 from .config import add_dataclass_arguments, load_config, namespace_overrides
 
@@ -28,5 +31,9 @@ def run_train(args: argparse.Namespace) -> None:
     )
     config = load_config(
         TrainConfig, config_path=args.config, overrides=overrides
+    )
+    train_model = cast(
+        Callable[[TrainConfig], None],
+        import_module('nn_filter.train').train_model,
     )
     train_model(config)

@@ -1,24 +1,11 @@
-from dataclasses import dataclass
-from pathlib import Path
-
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from .config import TrainConfig
 from .dataset import ImageRestorationDataset
 from .model import CNNFilter
-
-
-@dataclass(slots=True)
-class TrainConfig:
-    low_dir: Path
-    high_dir: Path
-    epochs: int = 10
-    batch_size: int = 8
-    lr: float = 1e-3
-    save_dir: Path = Path('checkpoints')
-    num_workers: int = 2
 
 
 def get_device() -> torch.device:
