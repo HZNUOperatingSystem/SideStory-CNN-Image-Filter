@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import onnx
@@ -8,31 +9,23 @@ from .config import ExportPrecision, OnnxExportConfig, color_mode_channels
 from .onnx_export_setup import export_dtype, load_export_checkpoint
 
 
+@dataclass(frozen=True, slots=True)
 class ExportSpec:
-    def __init__(
-        self,
-        *,
-        output_path: Path,
-        in_channels: int,
-        height: int,
-        width: int,
-        opset: int,
-    ) -> None:
-        self.output_path = output_path
-        self.in_channels = in_channels
-        self.height = height
-        self.width = width
-        self.opset = opset
+    output_path: Path
+    in_channels: int
+    height: int
+    width: int
+    opset: int
 
 
 def export_onnx_model(config: OnnxExportConfig) -> Path:
     loaded = load_export_checkpoint(config)
     export_spec = ExportSpec(
-        output_path=loaded.output_path,
-        in_channels=color_mode_channels(loaded.color_mode),
-        height=config.height,
-        width=config.width,
-        opset=config.opset,
+        loaded.output_path,
+        color_mode_channels(loaded.color_mode),
+        config.height,
+        config.width,
+        config.opset,
     )
 
     if config.height <= 0 or config.width <= 0:
@@ -107,11 +100,11 @@ def _export_int8_onnx(
         _export_typed_onnx(
             model=model,
             export_spec=ExportSpec(
-                output_path=intermediate_path,
-                in_channels=export_spec.in_channels,
-                height=export_spec.height,
-                width=export_spec.width,
-                opset=export_spec.opset,
+                intermediate_path,
+                export_spec.in_channels,
+                export_spec.height,
+                export_spec.width,
+                export_spec.opset,
             ),
             dtype=torch.float32,
             device=torch.device('cpu'),
@@ -127,6 +120,9 @@ def _export_int8_onnx(
 
 
 def _select_export_device(precision: ExportPrecision) -> torch.device:
-    if precision in {'fp16', 'bf16'} and torch.cuda.is_available():
-        return torch.device('cuda')
+    if precision in {'fp16', 'bf16'}:
+        if torch.cuda.is_available():
+            return torch.device('cuda')
+        msg = f'{precision} ONNX export requires CUDA in this codebase.'
+        raise RuntimeError(msg)
     return torch.device('cpu')

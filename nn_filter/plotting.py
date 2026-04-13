@@ -273,9 +273,7 @@ def _add_metric_series(
         row=row,
         col=col,
     )
-    if _has_distinct_best_series(
-        series.current_values, series.best_values
-    ):
+    if _has_distinct_best_series(series.current_values, series.best_values):
         figure.add_trace(
             go.Scatter(
                 x=epochs,

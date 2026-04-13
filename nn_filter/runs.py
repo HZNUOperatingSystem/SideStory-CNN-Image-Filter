@@ -10,8 +10,8 @@ from rich.text import Text
 from torch import nn
 
 from .plotting import EpochPlotRecord, write_training_metrics_plot
-from .status import (
-    ResolvedStatusConfig,
+from .status import ResolvedStatusConfig
+from .status_ui import (
     format_best_values_line,
     format_status_line,
     format_watched_value_line,

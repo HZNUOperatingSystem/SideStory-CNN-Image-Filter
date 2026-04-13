@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from rich.text import Text
 
@@ -8,7 +10,7 @@ from .infer_setup import (
     load_inference_tensor,
 )
 from .io_utils import save_image_tensor
-from .train import get_device
+from .runtime import get_device
 from .ui import print_device, print_text, progress
 
 
@@ -45,8 +47,8 @@ def infer_model(
 
 def _build_infer_summary(
     *,
-    checkpoint_path: object,
-    output_dir: object,
+    checkpoint_path: Path,
+    output_dir: Path,
     sample_count: int,
 ) -> Text:
     summary = Text()

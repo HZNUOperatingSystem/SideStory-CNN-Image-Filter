@@ -4,9 +4,9 @@ from pathlib import Path
 
 import torch
 
-from .config import ColorMode, InferConfig, color_mode_channels
+from .checkpoint import load_model_checkpoint, resolve_run_checkpoint_path
+from .config import ColorMode, InferConfig
 from .io_utils import is_image_path, load_image_tensor
-from .model import CNNFilter
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,28 +20,21 @@ class LoadedCheckpoint:
     checkpoint_path: Path
     output_dir: Path
     color_mode: ColorMode
-    model: CNNFilter
+    model: torch.nn.Module
 
 
 def resolve_infer_config(config: InferConfig) -> InferConfig:
-    if (config.run_dir is None) == (config.ckpt is None):
-        msg = 'Provide either a run directory or --ckpt.'
-        raise ValueError(msg)
-
     if config.run_dir is not None:
         if config.output is not None:
             msg = 'Do not set --output when using a run directory.'
             raise ValueError(msg)
         return InferConfig(
             run_dir=config.run_dir,
-            ckpt=config.run_dir / 'best.pt',
+            ckpt=None,
             input=config.input,
             output=config.run_dir / 'outputs',
         )
 
-    if config.ckpt is None:
-        msg = 'Checkpoint path is required.'
-        raise ValueError(msg)
     if config.output is None:
         msg = '--output is required when using --ckpt.'
         raise ValueError(msg)
@@ -54,32 +47,11 @@ def load_checkpoint(
     device: torch.device,
 ) -> LoadedCheckpoint:
     resolved_config = resolve_infer_config(config)
-    checkpoint_path = _require_checkpoint_path(resolved_config.ckpt)
-    checkpoint = torch.load(
-        checkpoint_path,
-        map_location=device,
-        weights_only=False,
+    checkpoint_path = resolve_run_checkpoint_path(
+        run_dir=resolved_config.run_dir,
+        ckpt=resolved_config.ckpt,
     )
-
-    raw_model_config = checkpoint.get('model_config')
-    if not isinstance(raw_model_config, dict):
-        msg = f'Checkpoint {checkpoint_path} is missing model_config.'
-        raise ValueError(msg)
-    color_mode = raw_model_config.get('color_mode')
-    if color_mode not in {'rgb', 'y-only'}:
-        msg = (
-            'Unsupported color_mode in checkpoint '
-            f'{checkpoint_path}: {color_mode!r}'
-        )
-        raise ValueError(msg)
-
-    model = CNNFilter(in_channels=color_mode_channels(color_mode)).to(device)
-    state_dict = checkpoint.get('model_state_dict')
-    if not isinstance(state_dict, dict):
-        msg = f'Checkpoint {checkpoint_path} is missing model_state_dict.'
-        raise ValueError(msg)
-    model.load_state_dict(state_dict)
-    model.eval()
+    loaded_checkpoint = load_model_checkpoint(checkpoint_path, device=device)
 
     output_dir = resolved_config.output
     if output_dir is None:
@@ -88,10 +60,10 @@ def load_checkpoint(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     return LoadedCheckpoint(
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=loaded_checkpoint.checkpoint_path,
         output_dir=output_dir,
-        color_mode=color_mode,
-        model=model,
+        color_mode=loaded_checkpoint.color_mode,
+        model=loaded_checkpoint.model,
     )
 
 
@@ -163,8 +135,7 @@ def _load_manifest_samples(
         if missing_fields:
             joined_fields = ', '.join(missing_fields)
             msg = (
-                f'Manifest {manifest_path} is missing columns: '
-                f'{joined_fields}'
+                f'Manifest {manifest_path} is missing columns: {joined_fields}'
             )
             raise ValueError(msg)
 
@@ -198,13 +169,3 @@ def _load_manifest_samples(
             raise FileNotFoundError(msg)
 
     return samples
-
-
-def _require_checkpoint_path(checkpoint_path: Path | None) -> Path:
-    if checkpoint_path is None:
-        msg = 'Checkpoint path is required.'
-        raise ValueError(msg)
-    if not checkpoint_path.is_file():
-        msg = f'Checkpoint not found: {checkpoint_path}'
-        raise FileNotFoundError(msg)
-    return checkpoint_path

@@ -1,6 +1,5 @@
-from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 import torch
 from torch import nn
@@ -9,8 +8,10 @@ from torch.utils.data import DataLoader, Dataset
 
 from .config import TrainConfig, color_mode_channels
 from .data_setup import create_dataset
+from .loader_utils import shutdown_loader_workers
 from .model import CNNFilter
 from .runs import EpochTrainingState, RunManager
+from .runtime import get_device, set_seed
 from .status import ensure_status_runtime_available, resolve_status_config
 from .ui import (
     print_batching_adjustment,
@@ -23,48 +24,17 @@ from .ui import (
 from .validation import Validator
 
 
-class _ClosableQueue(Protocol):
-    def cancel_join_thread(self) -> None: ...
-
-    def close(self) -> None: ...
-
-    def put(self, item: object) -> None: ...
-
-
-class _TerminableWorker(Protocol):
-    def is_alive(self) -> bool: ...
-
-    def terminate(self) -> None: ...
-
-    def join(self, timeout: float | None = None) -> None: ...
-
-    def kill(self) -> None: ...
-
-
-class _TrainState(Protocol):
+@dataclass(frozen=True, slots=True)
+class TrainStepState:
+    criterion: nn.Module
     optimizer: torch.optim.Optimizer
     scheduler: OneCycleLR
-    criterion: nn.Module
-
-
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device('cuda')
-    if torch.backends.mps.is_available():
-        return torch.device('mps')
-    return torch.device('cpu')
-
-
-def set_seed(seed: int) -> None:
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def train_epoch(
     model: nn.Module,
     loader: DataLoader,
-    train_state: _TrainState,
+    train_state: TrainStepState,
     device: torch.device,
 ) -> float:
     model.train()
@@ -129,8 +99,7 @@ def train_model(
                 f'(size={train_summary.image_size_label})'
             ),
             val_summary=(
-                f'val={len(val_dataset)} '
-                f'(size={val_summary.image_size_label})'
+                f'val={len(val_dataset)} (size={val_summary.image_size_label})'
             ),
             color_mode=config.color_mode,
             patch_size=config.patch_size,
@@ -181,10 +150,10 @@ def train_model(
             lr=config.lr,
             lr_min=config.lr_min,
         )
-        train_state = _build_train_state(
+        train_state = TrainStepState(
+            criterion=criterion,
             optimizer=optimizer,
             scheduler=scheduler,
-            criterion=criterion,
         )
         validator = Validator(
             criterion,
@@ -196,11 +165,9 @@ def train_model(
                 model,
                 train_loader,
                 train_state,
-                training_device,
+                device=training_device,
             )
-            validation = validator.evaluate(
-                model, val_loader, training_device
-            )
+            validation = validator.evaluate(model, val_loader, training_device)
             print_epoch_summary(
                 epoch=epoch + 1,
                 total_epochs=config.epochs,
@@ -227,8 +194,8 @@ def train_model(
         except BaseException as error:
             close_error = error
         finally:
-            _shutdown_loader_workers(train_loader)
-            _shutdown_loader_workers(val_loader)
+            shutdown_loader_workers(train_loader)
+            shutdown_loader_workers(val_loader)
         if close_error is not None:
             raise close_error
     return run.run_dir
@@ -295,102 +262,3 @@ def _build_scheduler(
         div_factor=div_factor,
         final_div_factor=initial_lr / lr_min,
     )
-
-
-def _build_train_state(
-    *,
-    optimizer: torch.optim.Optimizer,
-    scheduler: OneCycleLR,
-    criterion: nn.Module,
-) -> _TrainState:
-    class TrainState:
-        def __init__(
-            self,
-            *,
-            optimizer: torch.optim.Optimizer,
-            scheduler: OneCycleLR,
-            criterion: nn.Module,
-        ) -> None:
-            self.optimizer = optimizer
-            self.scheduler = scheduler
-            self.criterion = criterion
-
-    return TrainState(
-        optimizer=optimizer,
-        scheduler=scheduler,
-        criterion=criterion,
-    )
-
-
-def _shutdown_loader_workers(loader: DataLoader | None) -> None:
-    if loader is None:
-        return
-    iterator = getattr(loader, '_iterator', None)
-    if iterator is None:
-        return
-
-    if hasattr(iterator, '_shutdown'):
-        iterator._shutdown = True
-    _shutdown_pin_memory_thread(iterator)
-    index_queues = getattr(iterator, '_index_queues', None)
-    if index_queues is not None:
-        for queue in index_queues:
-            _close_queue(queue)
-    _close_queue(getattr(iterator, '_worker_result_queue', None))
-    _terminate_workers(getattr(iterator, '_workers', None))
-    loader._iterator = None
-
-
-def _close_queue(queue: _ClosableQueue | None) -> None:
-    if queue is None:
-        return
-    cancel_join_thread = getattr(queue, 'cancel_join_thread', None)
-    close = getattr(queue, 'close', None)
-    if callable(cancel_join_thread):
-        cancel_join_thread()
-    if callable(close):
-        close()
-
-
-def _shutdown_pin_memory_thread(iterator: object) -> None:
-    done_event = getattr(iterator, '_pin_memory_thread_done_event', None)
-    if done_event is not None:
-        done_event.set()
-
-    worker_result_queue = getattr(iterator, '_worker_result_queue', None)
-    if worker_result_queue is not None:
-        _wake_pin_memory_thread(worker_result_queue)
-
-    pin_memory_thread = getattr(iterator, '_pin_memory_thread', None)
-    join = getattr(pin_memory_thread, 'join', None)
-    if callable(join):
-        join(timeout=0.5)
-
-
-def _wake_pin_memory_thread(queue: _ClosableQueue | None) -> None:
-    if queue is None:
-        return
-    put = getattr(queue, 'put', None)
-    if callable(put):
-        try:
-            put((None, None))
-        except ValueError:
-            return
-
-
-def _terminate_workers(
-    workers: Iterable[_TerminableWorker] | None,
-) -> None:
-    if workers is None:
-        return
-    for worker in workers:
-        _terminate_worker(worker)
-
-
-def _terminate_worker(worker: _TerminableWorker) -> None:
-    if worker.is_alive():
-        worker.terminate()
-        worker.join(timeout=0.5)
-    if worker.is_alive():
-        worker.kill()
-        worker.join(timeout=0.5)
