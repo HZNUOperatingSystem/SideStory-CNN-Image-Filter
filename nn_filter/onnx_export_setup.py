@@ -3,7 +3,11 @@ from pathlib import Path
 
 import torch
 
-from .checkpoint import load_model_checkpoint, resolve_run_checkpoint_path
+from .checkpoint import load_model_checkpoint
+from .checkpoint_resolution import (
+    CheckpointCommandPolicy,
+    resolve_checkpoint_command,
+)
 from .config import (
     ColorMode,
     ExportPrecision,
@@ -23,32 +27,39 @@ class LoadedExportCheckpoint:
 def resolve_onnx_export_config(
     config: OnnxExportConfig,
 ) -> OnnxExportConfig:
-    if config.run_dir is not None:
-        if config.output is not None:
-            msg = 'Do not set --output when using a run directory.'
-            raise ValueError(msg)
-        return OnnxExportConfig(
-            run_dir=config.run_dir,
-            ckpt=None,
-            output=config.run_dir / f'model.{config.precision}.onnx',
-            precision=config.precision,
-            height=config.height,
-            width=config.width,
-            opset=config.opset,
-        )
-
-    if config.output is None:
-        msg = '--output is required when using --ckpt.'
-        raise ValueError(msg)
-    return config
+    resolved_command = resolve_checkpoint_command(
+        run_dir=config.run_dir,
+        ckpt=config.ckpt,
+        output=config.output,
+        policy=CheckpointCommandPolicy(
+            default_output=(
+                lambda run_dir: run_dir / f'model.{config.precision}.onnx'
+            ),
+            output_conflict_message=(
+                'Do not set --output when using a run directory.'
+            ),
+            output_required_message=(
+                '--output is required when using --ckpt.'
+            ),
+        ),
+    )
+    return OnnxExportConfig(
+        run_dir=None,
+        ckpt=resolved_command.checkpoint_path,
+        output=resolved_command.output_path,
+        precision=config.precision,
+        height=config.height,
+        width=config.width,
+        opset=config.opset,
+    )
 
 
 def load_export_checkpoint(config: OnnxExportConfig) -> LoadedExportCheckpoint:
     resolved_config = resolve_onnx_export_config(config)
-    checkpoint_path = resolve_run_checkpoint_path(
-        run_dir=resolved_config.run_dir,
-        ckpt=resolved_config.ckpt,
-    )
+    checkpoint_path = resolved_config.ckpt
+    if checkpoint_path is None:
+        msg = 'Checkpoint path could not be resolved.'
+        raise ValueError(msg)
     loaded_checkpoint = load_model_checkpoint(
         checkpoint_path,
         device=torch.device('cpu'),

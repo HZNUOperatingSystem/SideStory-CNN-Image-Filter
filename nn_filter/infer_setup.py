@@ -4,7 +4,11 @@ from pathlib import Path
 
 import torch
 
-from .checkpoint import load_model_checkpoint, resolve_run_checkpoint_path
+from .checkpoint import load_model_checkpoint
+from .checkpoint_resolution import (
+    CheckpointCommandPolicy,
+    resolve_checkpoint_command,
+)
 from .config import ColorMode, InferConfig
 from .io_utils import is_image_path
 
@@ -25,21 +29,26 @@ class LoadedCheckpoint:
 
 
 def resolve_infer_config(config: InferConfig) -> InferConfig:
-    if config.run_dir is not None:
-        if config.output is not None:
-            msg = 'Do not set --output when using a run directory.'
-            raise ValueError(msg)
-        return InferConfig(
-            run_dir=config.run_dir,
-            ckpt=None,
-            input=config.input,
-            output=config.run_dir / 'outputs',
-        )
-
-    if config.output is None:
-        msg = '--output is required when using --ckpt.'
-        raise ValueError(msg)
-    return config
+    resolved_command = resolve_checkpoint_command(
+        run_dir=config.run_dir,
+        ckpt=config.ckpt,
+        output=config.output,
+        policy=CheckpointCommandPolicy(
+            default_output=lambda run_dir: run_dir / 'outputs',
+            output_conflict_message=(
+                'Do not set --output when using a run directory.'
+            ),
+            output_required_message=(
+                '--output is required when using --ckpt.'
+            ),
+        ),
+    )
+    return InferConfig(
+        run_dir=None,
+        ckpt=resolved_command.checkpoint_path,
+        input=config.input,
+        output=resolved_command.output_path,
+    )
 
 
 def load_checkpoint(
@@ -48,10 +57,10 @@ def load_checkpoint(
     device: torch.device,
 ) -> LoadedCheckpoint:
     resolved_config = resolve_infer_config(config)
-    checkpoint_path = resolve_run_checkpoint_path(
-        run_dir=resolved_config.run_dir,
-        ckpt=resolved_config.ckpt,
-    )
+    checkpoint_path = resolved_config.ckpt
+    if checkpoint_path is None:
+        msg = 'Checkpoint path could not be resolved.'
+        raise ValueError(msg)
     loaded_checkpoint = load_model_checkpoint(checkpoint_path, device=device)
 
     output_dir = resolved_config.output
@@ -104,6 +113,8 @@ def load_inference_samples(
 
     msg = f'Input path not found: {input_path}'
     raise FileNotFoundError(msg)
+
+
 def _load_manifest_samples(
     manifest_path: Path,
     *,

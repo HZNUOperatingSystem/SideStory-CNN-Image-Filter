@@ -25,18 +25,6 @@ def _ensure_4d(tensor: torch.Tensor) -> torch.Tensor:
     return tensor
 
 
-def _psnr_from_tensors(
-    prediction: torch.Tensor,
-    target: torch.Tensor,
-    max_value: float = 255.0,
-) -> float:
-    return _psnr_value_from_tensors(
-        prediction,
-        target,
-        max_value=max_value,
-    ).item()
-
-
 def _psnr_value_from_tensors(
     prediction: torch.Tensor,
     target: torch.Tensor,
@@ -44,23 +32,11 @@ def _psnr_value_from_tensors(
     max_value: float = 255.0,
 ) -> torch.Tensor:
     mse_tensor = torch.mean((prediction - target) ** 2)
-    if mse_tensor.item() == 0.0:
-        return torch.tensor(float('inf'), device=prediction.device)
-    ratio = (max_value * max_value) / mse_tensor
-    return 10.0 * torch.log10(ratio)
-
-
-def _ssim_from_tensors(
-    prediction: torch.Tensor,
-    target: torch.Tensor,
-    *,
-    max_value: float = 1.0,
-) -> float:
-    return _ssim_value_from_tensors(
-        prediction,
-        target,
-        max_value=max_value,
-    ).item()
+    safe_mse = mse_tensor.clamp_min(torch.finfo(mse_tensor.dtype).tiny)
+    ratio = (max_value * max_value) / safe_mse
+    psnr = 10.0 * torch.log10(ratio)
+    inf_value = torch.full_like(psnr, float('inf'))
+    return torch.where(mse_tensor == 0, inf_value, psnr)
 
 
 def _ssim_value_from_tensors(
@@ -171,15 +147,7 @@ def rgb_to_limited_y601(tensor: torch.Tensor) -> torch.Tensor:
 
 
 def rgb_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
-    prediction = _ensure_4d(prediction)
-    target = _ensure_4d(target)
-    if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
-        raise ValueError('rgb_psnr expects 3-channel RGB tensors')
-    return _psnr_from_tensors(
-        prediction * 255.0,
-        target * 255.0,
-        max_value=255.0,
-    )
+    return rgb_psnr_value(prediction, target).item()
 
 
 def rgb_psnr_value(
@@ -198,11 +166,7 @@ def rgb_psnr_value(
 
 
 def rgb_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
-    prediction = _ensure_4d(prediction)
-    target = _ensure_4d(target)
-    if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
-        raise ValueError('rgb_ssim expects 3-channel RGB tensors')
-    return _ssim_from_tensors(prediction, target, max_value=1.0)
+    return rgb_ssim_value(prediction, target).item()
 
 
 def rgb_ssim_value(
@@ -217,15 +181,7 @@ def rgb_ssim_value(
 
 
 def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
-    prediction = _ensure_4d(prediction)
-    target = _ensure_4d(target)
-    if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
-        raise ValueError('gray_psnr expects 1-channel tensors')
-    return _psnr_from_tensors(
-        prediction * 255.0,
-        target * 255.0,
-        max_value=255.0,
-    )
+    return gray_psnr_value(prediction, target).item()
 
 
 def gray_psnr_value(
@@ -244,11 +200,7 @@ def gray_psnr_value(
 
 
 def gray_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
-    prediction = _ensure_4d(prediction)
-    target = _ensure_4d(target)
-    if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
-        raise ValueError('gray_ssim expects 1-channel tensors')
-    return _ssim_from_tensors(prediction, target, max_value=1.0)
+    return gray_ssim_value(prediction, target).item()
 
 
 def gray_ssim_value(

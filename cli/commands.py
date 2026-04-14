@@ -123,31 +123,12 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
 
 
 def run_train(args: argparse.Namespace) -> None:
-    overrides = namespace_overrides(
-        args, exclude={'command', 'command_handler', 'config'}
-    )
-    config = load_config(
-        TrainConfig, config_path=args.config, overrides=overrides
-    )
-    train_model = cast(
-        Callable[[TrainConfig], Path],
-        import_module('nn_filter.train').train_model,
-    )
-    train_model(config)
+    _import_train_model()(_load_train_config(args))
 
 
 def run_fit(args: argparse.Namespace) -> None:
-    overrides = namespace_overrides(
-        args, exclude={'command', 'command_handler', 'config'}
-    )
-    config = load_config(
-        TrainConfig, config_path=args.config, overrides=overrides
-    )
-    train_model = cast(
-        Callable[[TrainConfig], Path],
-        import_module('nn_filter.train').train_model,
-    )
-    run_dir = train_model(config)
+    config = _load_train_config(args)
+    run_dir = _import_train_model()(config)
     infer_model = cast(
         Callable[[InferConfig], None],
         import_module('nn_filter.infer').infer_model,
@@ -189,3 +170,21 @@ def run_onnx_export(args: argparse.Namespace) -> None:
         import_module('nn_filter.onnx_export').export_onnx_model,
     )
     export_onnx(config)
+
+
+def _load_train_config(args: argparse.Namespace) -> TrainConfig:
+    overrides = namespace_overrides(
+        args, exclude={'command', 'command_handler', 'config'}
+    )
+    return load_config(
+        TrainConfig,
+        config_path=args.config,
+        overrides=overrides,
+    )
+
+
+def _import_train_model() -> Callable[[TrainConfig], Path]:
+    return cast(
+        Callable[[TrainConfig], Path],
+        import_module('nn_filter.train').train_model,
+    )
