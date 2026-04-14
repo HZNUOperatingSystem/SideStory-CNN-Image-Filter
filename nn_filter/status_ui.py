@@ -9,8 +9,21 @@ def format_status_line(
     *,
     selected_statuses: list[str],
 ) -> Text:
+    return format_named_values_line(
+        'status',
+        status_values,
+        selected_statuses=selected_statuses,
+    )
+
+
+def format_named_values_line(
+    label: str,
+    values: Mapping[str, float],
+    *,
+    selected_statuses: list[str],
+) -> Text:
     line = Text()
-    line.append('status', style='dim')
+    line.append(label, style='dim')
     line.append(': ', style='dim')
     first = True
     for name in selected_statuses:
@@ -19,7 +32,7 @@ def format_status_line(
         first = False
         line.append(name, style='cyan')
         line.append('=', style='dim')
-        line.append_text(format_status_value(name, status_values[name]))
+        line.append_text(format_status_value(name, values[name]))
     return line
 
 

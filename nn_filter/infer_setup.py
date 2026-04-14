@@ -6,13 +6,14 @@ import torch
 
 from .checkpoint import load_model_checkpoint, resolve_run_checkpoint_path
 from .config import ColorMode, InferConfig
-from .io_utils import is_image_path, load_image_tensor
+from .io_utils import is_image_path
 
 
 @dataclass(frozen=True, slots=True)
 class InferenceSample:
     input_path: Path
     output_path: Path
+    target_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,30 +104,13 @@ def load_inference_samples(
 
     msg = f'Input path not found: {input_path}'
     raise FileNotFoundError(msg)
-
-
-def load_inference_tensor(
-    sample: InferenceSample,
-    *,
-    color_mode: ColorMode,
-    device: torch.device,
-) -> torch.Tensor:
-    return (
-        load_image_tensor(
-            sample.input_path,
-            color_mode=color_mode,
-        )
-        .unsqueeze(0)
-        .to(device)
-    )
-
-
 def _load_manifest_samples(
     manifest_path: Path,
     *,
     output_dir: Path,
 ) -> list[InferenceSample]:
     samples: list[InferenceSample] = []
+    grouped_rows: dict[str, dict[str, Path]] = {}
     with manifest_path.open(newline='') as manifest_file:
         reader = csv.DictReader(manifest_file)
         fieldnames = reader.fieldnames or []
@@ -140,25 +124,45 @@ def _load_manifest_samples(
             raise ValueError(msg)
 
         for line_number, row in enumerate(reader, start=2):
+            sample_name = (row['sample'] or '').strip()
             kind = (row['kind'] or '').strip().lower()
             relative_path = (row['path'] or '').strip()
-            if kind != 'source':
-                continue
-            if not relative_path:
+            if not sample_name or not kind or not relative_path:
+                msg = f'Incomplete row in {manifest_path} at line {line_number}'
+                raise ValueError(msg)
+            if kind not in {'source', 'target'}:
                 msg = (
-                    f'Incomplete source row in {manifest_path} '
+                    f'Invalid kind {kind!r} in {manifest_path} '
                     f'at line {line_number}'
                 )
                 raise ValueError(msg)
 
-            input_path = manifest_path.parent / relative_path
-            samples.append(
-                InferenceSample(
-                    input_path=input_path,
-                    output_path=output_dir / relative_path,
+            sample_rows = grouped_rows.setdefault(sample_name, {})
+            if kind in sample_rows:
+                msg = (
+                    f'Duplicate {kind!r} entry for sample '
+                    f'{sample_name!r} in {manifest_path}'
                 )
-            )
+                raise ValueError(msg)
+            sample_rows[kind] = manifest_path.parent / relative_path
 
+    for sample_name in sorted(grouped_rows):
+        sample_rows = grouped_rows[sample_name]
+        input_path = sample_rows.get('source')
+        if input_path is None:
+            msg = (
+                f'Sample {sample_name!r} in {manifest_path} is missing: source'
+            )
+            raise ValueError(msg)
+        target_path = sample_rows.get('target')
+        output_relative_path = input_path.relative_to(manifest_path.parent)
+        samples.append(
+            InferenceSample(
+                input_path=input_path,
+                output_path=output_dir / output_relative_path,
+                target_path=target_path,
+            )
+        )
     if not samples:
         msg = f'No source samples found in manifest: {manifest_path}'
         raise ValueError(msg)
@@ -166,6 +170,9 @@ def _load_manifest_samples(
     for sample in samples:
         if not sample.input_path.is_file():
             msg = f'Input image not found: {sample.input_path}'
+            raise FileNotFoundError(msg)
+        if sample.target_path is not None and not sample.target_path.is_file():
+            msg = f'Target image not found: {sample.target_path}'
             raise FileNotFoundError(msg)
 
     return samples

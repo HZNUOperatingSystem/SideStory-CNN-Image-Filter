@@ -30,11 +30,24 @@ def _psnr_from_tensors(
     target: torch.Tensor,
     max_value: float = 255.0,
 ) -> float:
-    mse = torch.mean((prediction - target) ** 2).item()
-    if mse == 0.0:
-        return float('inf')
-    ratio = torch.tensor((max_value * max_value) / mse)
-    return 10.0 * torch.log10(ratio).item()
+    return _psnr_value_from_tensors(
+        prediction,
+        target,
+        max_value=max_value,
+    ).item()
+
+
+def _psnr_value_from_tensors(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    max_value: float = 255.0,
+) -> torch.Tensor:
+    mse_tensor = torch.mean((prediction - target) ** 2)
+    if mse_tensor.item() == 0.0:
+        return torch.tensor(float('inf'), device=prediction.device)
+    ratio = (max_value * max_value) / mse_tensor
+    return 10.0 * torch.log10(ratio)
 
 
 def _ssim_from_tensors(
@@ -43,6 +56,19 @@ def _ssim_from_tensors(
     *,
     max_value: float = 1.0,
 ) -> float:
+    return _ssim_value_from_tensors(
+        prediction,
+        target,
+        max_value=max_value,
+    ).item()
+
+
+def _ssim_value_from_tensors(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    max_value: float = 1.0,
+) -> torch.Tensor:
     if prediction.shape != target.shape:
         msg = (
             f'Shape mismatch: prediction {tuple(prediction.shape)} vs '
@@ -84,7 +110,7 @@ def _ssim_from_tensors(
         sigma_prediction_sq + sigma_target_sq + c2
     )
     ssim_map = numerator / denominator.clamp_min(torch.finfo(window.dtype).eps)
-    return ssim_map.mean().item()
+    return ssim_map.mean()
 
 
 def _resolve_ssim_kernel_size(tensor: torch.Tensor) -> int:
@@ -156,12 +182,38 @@ def rgb_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
     )
 
 
+def rgb_psnr_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
+        raise ValueError('rgb_psnr expects 3-channel RGB tensors')
+    return _psnr_value_from_tensors(
+        prediction * 255.0,
+        target * 255.0,
+        max_value=255.0,
+    )
+
+
 def rgb_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
     prediction = _ensure_4d(prediction)
     target = _ensure_4d(target)
     if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
         raise ValueError('rgb_ssim expects 3-channel RGB tensors')
     return _ssim_from_tensors(prediction, target, max_value=1.0)
+
+
+def rgb_ssim_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
+        raise ValueError('rgb_ssim expects 3-channel RGB tensors')
+    return _ssim_value_from_tensors(prediction, target, max_value=1.0)
 
 
 def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
@@ -176,6 +228,21 @@ def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
     )
 
 
+def gray_psnr_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
+        raise ValueError('gray_psnr expects 1-channel tensors')
+    return _psnr_value_from_tensors(
+        prediction * 255.0,
+        target * 255.0,
+        max_value=255.0,
+    )
+
+
 def gray_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
     prediction = _ensure_4d(prediction)
     target = _ensure_4d(target)
@@ -184,7 +251,25 @@ def gray_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
     return _ssim_from_tensors(prediction, target, max_value=1.0)
 
 
+def gray_ssim_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    prediction = _ensure_4d(prediction)
+    target = _ensure_4d(target)
+    if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
+        raise ValueError('gray_ssim expects 1-channel tensors')
+    return _ssim_value_from_tensors(prediction, target, max_value=1.0)
+
+
 def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    return y_psnr_value(prediction, target).item()
+
+
+def y_psnr_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
     prediction = _ensure_4d(prediction)
     target = _ensure_4d(target)
 
@@ -192,9 +277,9 @@ def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
         prediction.shape[1] == GRAY_CHANNELS
         and target.shape[1] == GRAY_CHANNELS
     ):
-        return gray_psnr(prediction, target)
+        return gray_psnr_value(prediction, target)
     if prediction.shape[1] == RGB_CHANNELS and target.shape[1] == RGB_CHANNELS:
-        return _psnr_from_tensors(
+        return _psnr_value_from_tensors(
             rgb_to_limited_y601(prediction),
             rgb_to_limited_y601(target),
             max_value=255.0,
@@ -207,6 +292,13 @@ def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
 
 
 def y_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
+    return y_ssim_value(prediction, target).item()
+
+
+def y_ssim_value(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
     prediction = _ensure_4d(prediction)
     target = _ensure_4d(target)
 
@@ -214,9 +306,9 @@ def y_ssim(prediction: torch.Tensor, target: torch.Tensor) -> float:
         prediction.shape[1] == GRAY_CHANNELS
         and target.shape[1] == GRAY_CHANNELS
     ):
-        return gray_ssim(prediction, target)
+        return gray_ssim_value(prediction, target)
     if prediction.shape[1] == RGB_CHANNELS and target.shape[1] == RGB_CHANNELS:
-        return _ssim_from_tensors(
+        return _ssim_value_from_tensors(
             rgb_to_limited_y601(prediction) / 255.0,
             rgb_to_limited_y601(target) / 255.0,
             max_value=1.0,
