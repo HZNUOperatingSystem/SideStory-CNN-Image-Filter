@@ -31,7 +31,7 @@ def _psnr_value_from_tensors(
     *,
     max_value: float = 255.0,
 ) -> torch.Tensor:
-    mse_tensor = torch.mean((prediction - target) ** 2)
+    mse_tensor = torch.mean((prediction - target) ** 2, dim=(1, 2, 3))
     safe_mse = mse_tensor.clamp_min(torch.finfo(mse_tensor.dtype).tiny)
     ratio = (max_value * max_value) / safe_mse
     psnr = 10.0 * torch.log10(ratio)
@@ -86,7 +86,17 @@ def _ssim_value_from_tensors(
         sigma_prediction_sq + sigma_target_sq + c2
     )
     ssim_map = numerator / denominator.clamp_min(torch.finfo(window.dtype).eps)
-    return ssim_map.mean()
+    return ssim_map.mean(dim=(1, 2, 3))
+
+
+def _mean_metric_value(values: torch.Tensor) -> torch.Tensor:
+    if values.ndim != 1:
+        msg = (
+            'Expected per-image metric values, '
+            f'got shape {tuple(values.shape)}'
+        )
+        raise ValueError(msg)
+    return values.mean()
 
 
 def _resolve_ssim_kernel_size(tensor: torch.Tensor) -> int:
@@ -158,10 +168,12 @@ def rgb_psnr_value(
     target = _ensure_4d(target)
     if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
         raise ValueError('rgb_psnr expects 3-channel RGB tensors')
-    return _psnr_value_from_tensors(
-        prediction * 255.0,
-        target * 255.0,
-        max_value=255.0,
+    return _mean_metric_value(
+        _psnr_value_from_tensors(
+            prediction * 255.0,
+            target * 255.0,
+            max_value=255.0,
+        )
     )
 
 
@@ -177,7 +189,9 @@ def rgb_ssim_value(
     target = _ensure_4d(target)
     if prediction.shape[1] != RGB_CHANNELS or target.shape[1] != RGB_CHANNELS:
         raise ValueError('rgb_ssim expects 3-channel RGB tensors')
-    return _ssim_value_from_tensors(prediction, target, max_value=1.0)
+    return _mean_metric_value(
+        _ssim_value_from_tensors(prediction, target, max_value=1.0)
+    )
 
 
 def gray_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
@@ -192,10 +206,12 @@ def gray_psnr_value(
     target = _ensure_4d(target)
     if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
         raise ValueError('gray_psnr expects 1-channel tensors')
-    return _psnr_value_from_tensors(
-        prediction * 255.0,
-        target * 255.0,
-        max_value=255.0,
+    return _mean_metric_value(
+        _psnr_value_from_tensors(
+            prediction * 255.0,
+            target * 255.0,
+            max_value=255.0,
+        )
     )
 
 
@@ -211,7 +227,9 @@ def gray_ssim_value(
     target = _ensure_4d(target)
     if prediction.shape[1] != GRAY_CHANNELS or target.shape[1] != GRAY_CHANNELS:
         raise ValueError('gray_ssim expects 1-channel tensors')
-    return _ssim_value_from_tensors(prediction, target, max_value=1.0)
+    return _mean_metric_value(
+        _ssim_value_from_tensors(prediction, target, max_value=1.0)
+    )
 
 
 def y_psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
@@ -231,10 +249,12 @@ def y_psnr_value(
     ):
         return gray_psnr_value(prediction, target)
     if prediction.shape[1] == RGB_CHANNELS and target.shape[1] == RGB_CHANNELS:
-        return _psnr_value_from_tensors(
-            rgb_to_limited_y601(prediction),
-            rgb_to_limited_y601(target),
-            max_value=255.0,
+        return _mean_metric_value(
+            _psnr_value_from_tensors(
+                rgb_to_limited_y601(prediction),
+                rgb_to_limited_y601(target),
+                max_value=255.0,
+            )
         )
     msg = (
         'y_psnr expects either 1-channel Y tensors or 3-channel RGB tensors '
@@ -260,10 +280,12 @@ def y_ssim_value(
     ):
         return gray_ssim_value(prediction, target)
     if prediction.shape[1] == RGB_CHANNELS and target.shape[1] == RGB_CHANNELS:
-        return _ssim_value_from_tensors(
-            rgb_to_limited_y601(prediction) / 255.0,
-            rgb_to_limited_y601(target) / 255.0,
-            max_value=1.0,
+        return _mean_metric_value(
+            _ssim_value_from_tensors(
+                rgb_to_limited_y601(prediction) / 255.0,
+                rgb_to_limited_y601(target) / 255.0,
+                max_value=1.0,
+            )
         )
     msg = (
         'y_ssim expects either 1-channel Y tensors or 3-channel RGB tensors '

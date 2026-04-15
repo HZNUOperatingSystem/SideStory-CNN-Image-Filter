@@ -117,6 +117,23 @@ def print_epoch_summary(
     print_text(summary)
 
 
+def print_infer_summary(
+    *,
+    checkpoint_path: Path,
+    output_dir: Path,
+    sample_count: int,
+) -> None:
+    summary = Text()
+    summary.append('infer', style='bold blue')
+    summary.append(': ')
+    summary.append(str(checkpoint_path), style='green')
+    summary.append(' | ', style='dim')
+    summary.append(str(output_dir), style='yellow')
+    summary.append(' | ', style='dim')
+    summary.append(f'samples={sample_count}', style='magenta')
+    print_text(summary)
+
+
 def save_terminal_log(log_path: Path) -> None:
     log_path.write_text(
         console.export_text(styles=False, clear=False),

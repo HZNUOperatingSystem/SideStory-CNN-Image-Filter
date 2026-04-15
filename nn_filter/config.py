@@ -32,8 +32,10 @@ class TrainConfig:
 class InferConfig:
     run_dir: Path | None = None
     ckpt: Path | None = None
-    input: Path = Path()
+    input: Path | None = None
+    test_manifest: Path | None = None
     output: Path | None = None
+    status: StatusSelection = False
 
 
 @dataclass(slots=True)

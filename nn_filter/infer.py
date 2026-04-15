@@ -1,33 +1,42 @@
-from pathlib import Path
-
 import torch
-from rich.text import Text
 
-from .config import ColorMode, InferConfig
+from .config import InferConfig
 from .infer_setup import (
     load_checkpoint,
     load_inference_samples,
+    resolve_infer_config,
 )
 from .io_utils import load_image_tensor, save_image_tensor
 from .runtime import get_device
 from .status import (
     DeviceStatusTracker,
-    ResolvedStatusConfig,
-    default_status_names,
     resolve_status_config,
 )
-from .status_ui import format_named_values_line
-from .ui import print_device, print_text, progress
+from .status_ui import format_status_line
+from .ui import print_device, print_infer_summary, print_text, progress
 
 
 def infer_model(
     config: InferConfig, *, device: torch.device | None = None
 ) -> None:
     inference_device = device if device is not None else get_device()
-    loaded_checkpoint = load_checkpoint(config, device=inference_device)
-    status_config = _build_infer_status_config(loaded_checkpoint.color_mode)
+    resolved_config = resolve_infer_config(config)
+    loaded_checkpoint = load_checkpoint(
+        resolved_config,
+        device=inference_device,
+    )
+    status_config = resolve_status_config(
+        resolved_config.status,
+        target_value=None,
+        watched_best=[],
+        color_mode=loaded_checkpoint.color_mode,
+    )
+    input_path = resolved_config.input
+    if input_path is None:
+        msg = 'Input path could not be resolved.'
+        raise ValueError(msg)
     samples = load_inference_samples(
-        config.input,
+        input_path,
         output_dir=loaded_checkpoint.output_dir,
     )
     status_tracker = DeviceStatusTracker(
@@ -64,51 +73,16 @@ def infer_model(
                 batch_size=1,
             )
 
-    print_text(
-        _build_infer_summary(
-            checkpoint_path=loaded_checkpoint.checkpoint_path,
-            output_dir=loaded_checkpoint.output_dir,
-            sample_count=len(samples),
-        )
+    print_infer_summary(
+        checkpoint_path=loaded_checkpoint.checkpoint_path,
+        output_dir=loaded_checkpoint.output_dir,
+        sample_count=len(samples),
     )
     status_summary = status_tracker.finish_epoch()
     if status_summary.status_values:
         print_text(
-            format_named_values_line(
-                'metrics',
+            format_status_line(
                 status_summary.status_values,
                 selected_statuses=status_config.selected_statuses,
             )
         )
-
-
-def _build_infer_status_config(
-    color_mode: ColorMode,
-) -> ResolvedStatusConfig:
-    return resolve_status_config(
-        default_status_names(
-            color_mode,
-            include_vmaf=False,
-            include_derived=True,
-        ),
-        target_value=None,
-        watched_best=[],
-        color_mode=color_mode,
-    )
-
-
-def _build_infer_summary(
-    *,
-    checkpoint_path: Path,
-    output_dir: Path,
-    sample_count: int,
-) -> Text:
-    summary = Text()
-    summary.append('infer', style='bold blue')
-    summary.append(': ')
-    summary.append(str(checkpoint_path), style='green')
-    summary.append(' | ', style='dim')
-    summary.append(str(output_dir), style='yellow')
-    summary.append(' | ', style='dim')
-    summary.append(f'samples={sample_count}', style='magenta')
-    return summary

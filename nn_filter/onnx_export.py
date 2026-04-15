@@ -3,6 +3,7 @@ from pathlib import Path
 
 import onnx
 import torch
+from onnx.external_data_helper import convert_model_from_external_data
 from onnxruntime.quantization import QuantType, quantize_dynamic
 
 from .config import ExportPrecision, OnnxExportConfig, color_mode_channels
@@ -53,6 +54,7 @@ def export_onnx_model(config: OnnxExportConfig) -> Path:
             do_constant_folding=loaded.precision == 'fp32',
         )
 
+    _rewrite_single_file_onnx(export_spec.output_path)
     onnx_model = onnx.load(export_spec.output_path)
     onnx.checker.check_model(onnx_model)
     return export_spec.output_path
@@ -126,3 +128,14 @@ def _select_export_device(precision: ExportPrecision) -> torch.device:
         msg = f'{precision} ONNX export requires CUDA in this codebase.'
         raise RuntimeError(msg)
     return torch.device('cpu')
+
+
+def _rewrite_single_file_onnx(output_path: Path) -> None:
+    onnx_model = onnx.load(output_path, load_external_data=True)
+    convert_model_from_external_data(onnx_model)
+    onnx.save_model(
+        onnx_model,
+        output_path,
+        save_as_external_data=False,
+    )
+    (output_path.parent / f'{output_path.name}.data').unlink(missing_ok=True)

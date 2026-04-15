@@ -1,8 +1,8 @@
 # train config
 # CSV manifest of training source/target pairs.
-train_manifest = "data/train.datalist.csv"
+train_manifest = "../data/train.datalist.csv"
 # CSV manifest used for validation on full images.
-val_manifest = "data/val.datalist.csv"
+val_manifest = "../data/val.datalist.csv"
 # "rgb" trains on 3 channels; "y-only" trains on luminance only.
 color_mode = "rgb"
 # Train on non-overlapping square patches; omit to use whole images.
@@ -31,6 +31,6 @@ lr = 0.001
 # Minimum learning rate reached near the end of the schedule.
 lr_min = 0.000001
 # Parent directory where numbered run folders are created.
-runs_dir = "runs"
+runs_dir = "../runs"
 # DataLoader worker processes for loading train/val samples.
 num_workers = 2

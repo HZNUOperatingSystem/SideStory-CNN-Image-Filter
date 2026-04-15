@@ -24,24 +24,16 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
     add_dataclass_arguments(train_parser, TrainConfig)
     train_parser.set_defaults(command_handler=run_train)
 
-    fit_parser = subparsers.add_parser(
-        'fit',
-        help='Train the model and run inference on the validation set.',
-        description='Train the model and run inference on the validation set.',
-    )
-    fit_parser.add_argument(
-        '--config',
-        type=Path,
-        default=Path('configs/train.toml'),
-        help='Path to the training config TOML file.',
-    )
-    add_dataclass_arguments(fit_parser, TrainConfig)
-    fit_parser.set_defaults(command_handler=run_fit)
-
     infer_parser = subparsers.add_parser(
         'infer',
         help='Run model inference.',
         description='Run model inference.',
+    )
+    infer_parser.add_argument(
+        '--config',
+        type=Path,
+        default=Path('configs/infer.toml'),
+        help='Path to the inference config TOML file.',
     )
     infer_parser.add_argument(
         'run_dir',
@@ -58,14 +50,32 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
     infer_parser.add_argument(
         '--input',
         type=Path,
-        required=True,
+        default=argparse.SUPPRESS,
         help='Input .datalist.csv, image file, or directory of images.',
+    )
+    infer_parser.add_argument(
+        '--test-manifest',
+        '--test_manifest',
+        dest='test_manifest',
+        type=Path,
+        default=argparse.SUPPRESS,
+        help='Test manifest used for inference/evaluation.',
     )
     infer_parser.add_argument(
         '--output',
         type=Path,
         default=argparse.SUPPRESS,
         help='Output directory. Required when using --ckpt.',
+    )
+    infer_parser.add_argument(
+        '--status',
+        nargs='*',
+        type=str,
+        default=argparse.SUPPRESS,
+        help=(
+            'Statuses to report during inference. '
+            'Pass no values to enable all compatible statuses.'
+        ),
     )
     infer_parser.set_defaults(command_handler=run_infer)
 
@@ -126,33 +136,12 @@ def run_train(args: argparse.Namespace) -> None:
     _import_train_model()(_load_train_config(args))
 
 
-def run_fit(args: argparse.Namespace) -> None:
-    config = _load_train_config(args)
-    run_dir = _import_train_model()(config)
-    infer_model = cast(
-        Callable[[InferConfig], None],
-        import_module('nn_filter.infer').infer_model,
-    )
-    infer_model(
-        InferConfig(
-            run_dir=run_dir,
-            input=config.val_manifest,
-        )
-    )
-
-
 def run_infer(args: argparse.Namespace) -> None:
-    config = InferConfig(
-        run_dir=getattr(args, 'run_dir', None),
-        ckpt=getattr(args, 'ckpt', None),
-        input=args.input,
-        output=getattr(args, 'output', None),
-    )
     infer_model = cast(
         Callable[[InferConfig], None],
         import_module('nn_filter.infer').infer_model,
     )
-    infer_model(config)
+    infer_model(_load_infer_config(args))
 
 
 def run_onnx_export(args: argparse.Namespace) -> None:
@@ -178,6 +167,17 @@ def _load_train_config(args: argparse.Namespace) -> TrainConfig:
     )
     return load_config(
         TrainConfig,
+        config_path=args.config,
+        overrides=overrides,
+    )
+
+
+def _load_infer_config(args: argparse.Namespace) -> InferConfig:
+    overrides = namespace_overrides(
+        args, exclude={'command', 'command_handler', 'config'}
+    )
+    return load_config(
+        InferConfig,
         config_path=args.config,
         overrides=overrides,
     )

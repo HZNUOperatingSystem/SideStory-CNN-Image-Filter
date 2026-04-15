@@ -29,6 +29,7 @@ class LoadedCheckpoint:
 
 
 def resolve_infer_config(config: InferConfig) -> InferConfig:
+    input_path = _resolve_input_path(config)
     resolved_command = resolve_checkpoint_command(
         run_dir=config.run_dir,
         ckpt=config.ckpt,
@@ -46,8 +47,10 @@ def resolve_infer_config(config: InferConfig) -> InferConfig:
     return InferConfig(
         run_dir=None,
         ckpt=resolved_command.checkpoint_path,
-        input=config.input,
+        input=input_path,
+        test_manifest=None,
         output=resolved_command.output_path,
+        status=config.status,
     )
 
 
@@ -187,3 +190,13 @@ def _load_manifest_samples(
             raise FileNotFoundError(msg)
 
     return samples
+
+
+def _resolve_input_path(config: InferConfig) -> Path:
+    if config.input is not None:
+        return config.input
+    if config.test_manifest is not None:
+        return config.test_manifest
+
+    msg = 'Infer config requires either input or test_manifest.'
+    raise ValueError(msg)

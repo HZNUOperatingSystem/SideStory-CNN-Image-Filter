@@ -1,0 +1,10 @@
+# infer config
+test_manifest = "../data/test.datalist.csv"
+status = [
+    'y_psnr',
+    'y_psnr_gain',
+    'rgb_psnr',
+    'rgb_psnr_gain',
+    'rgb_ssim',
+    'rgb_ssim_gain',
+]
