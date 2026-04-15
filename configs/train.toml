@@ -1,10 +1,17 @@
 # train config
+# CSV manifest of training source/target pairs.
 train_manifest = "data/train.datalist.csv"
+# CSV manifest used for validation on full images.
 val_manifest = "data/val.datalist.csv"
+# "rgb" trains on 3 channels; "y-only" trains on luminance only.
 color_mode = "rgb"
+# Train on non-overlapping square patches; omit to use whole images.
 patch_size = 128
+# Main metric used to judge the best checkpoint; must be enabled in `status`.
 target_value = "rgb_psnr"
+# Extra status values whose best-so-far numbers are tracked and shown.
 watched_best = ['rgb_psnr_gain', 'rgb_ssim_gain']
+# Metrics/status values computed each validation epoch; `_gain` means improvement over the input image.
 status = [
     'y_psnr',
     'y_psnr_gain',
@@ -13,10 +20,17 @@ status = [
     'rgb_ssim',
     'rgb_ssim_gain',
 ]
+# Random seed for reproducible training setup.
 seed = 37
+# Number of epochs to train.
 epochs = 50
+# Requested training batch size; validation uses batch size 1.
 batch_size = 32
+# Peak learning rate used by AdamW + OneCycleLR.
 lr = 0.001
+# Minimum learning rate reached near the end of the schedule.
 lr_min = 0.000001
+# Parent directory where numbered run folders are created.
 runs_dir = "runs"
+# DataLoader worker processes for loading train/val samples.
 num_workers = 2
