@@ -27,9 +27,9 @@ epochs = 50
 # Requested training batch size; validation uses batch size 1.
 batch_size = 32
 # Peak learning rate used by AdamW + OneCycleLR.
-lr = 0.001
+lr = 1e-8
 # Minimum learning rate reached near the end of the schedule.
-lr_min = 0.000001
+lr_min = 1e-10
 # Parent directory where numbered run folders are created.
 runs_dir = "../runs"
 # DataLoader worker processes for loading train/val samples.
